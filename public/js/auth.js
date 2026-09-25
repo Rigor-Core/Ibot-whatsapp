@@ -2,7 +2,7 @@ function $(s, root = document) { return root.querySelector(s); }
 async function authRequest(path, body) {
   const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const text = await res.text();
-  let data = null;
+  let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
   if (!res.ok) throw new Error(data?.error || res.statusText);
   return data;
@@ -17,9 +17,35 @@ function showMsg(message, danger = false) {
   el.textContent = message || '';
   el.style.color = danger ? 'var(--danger)' : 'var(--muted)';
 }
+function initPasswordToggles() {
+  document.querySelectorAll('.toggle-password-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetId = btn.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      const eye = btn.querySelector('.icon-eye');
+      const eyeOff = btn.querySelector('.icon-eye-off');
+      if (input && input.type === 'password') {
+        input.type = 'text';
+        if (eye) eye.style.display = 'none';
+        if (eyeOff) eyeOff.style.display = 'block';
+      } else if (input) {
+        input.type = 'password';
+        if (eye) eye.style.display = 'block';
+        if (eyeOff) eyeOff.style.display = 'none';
+      }
+    });
+  });
+}
 async function initLogin() {
+  initPasswordToggles();
+  setTimeout(() => {
+    if ($('#username')) $('#username').value = '';
+    if ($('#password')) $('#password').value = '';
+  }, 60);
   const st = await authStatus().catch(() => null);
-  if (st?.authenticated) location.href = '/';
+  if (st?.authenticated) location.href = '/admin.html';
   $('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#loginBtn');
@@ -27,7 +53,7 @@ async function initLogin() {
     showMsg('Iniciando sesión...');
     try {
       await authRequest('/api/auth/login', { username: $('#username').value, password: $('#password').value });
-      location.href = '/';
+      location.href = '/admin.html';
     } catch (err) {
       showMsg(err.message, true);
     } finally {
@@ -36,8 +62,14 @@ async function initLogin() {
   });
 }
 async function initRegister() {
+  initPasswordToggles();
+  setTimeout(() => {
+    if ($('#username')) $('#username').value = '';
+    if ($('#password')) $('#password').value = '';
+    if ($('#confirm')) $('#confirm').value = '';
+  }, 60);
   const st = await authStatus().catch(() => null);
-  if (st?.authenticated && !st?.needsSetup) showMsg('Crearás un usuario adicional para el panel.');
+  if (st?.authenticated && !st?.needsSetup) { location.href = '/admin.html'; return; }
   $('#registerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const password = $('#password').value;
@@ -48,7 +80,7 @@ async function initRegister() {
     showMsg('Creando usuario...');
     try {
       await authRequest('/api/auth/register', { username: $('#username').value, password });
-      location.href = '/';
+      location.href = '/admin.html';
     } catch (err) {
       showMsg(err.message, true);
     } finally {
@@ -56,7 +88,7 @@ async function initRegister() {
     }
   });
 }
-async function logoutPanel() {
-  await authRequest('/api/auth/logout', {}).catch(() => null);
-  location.href = '/login.html';
-}
+document.addEventListener('DOMContentLoaded', () => {
+  if ($('#loginForm')) initLogin();
+  if ($('#registerForm')) initRegister();
+});

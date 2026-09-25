@@ -10,11 +10,7 @@ let logPollTimer = null;
 async function init() {
   bindPanelLogout();
   bindEvents();
-  const rows = await fillAccounts();
-  const hasAccounts = rows.length > 0;
-  $('#noAccounts').style.display = hasAccounts ? 'none' : 'block';
-  $('#consoleView').style.display = hasAccounts ? 'block' : 'none';
-  if (!hasAccounts) return;
+  await loadUserBot();
   await loadLogs();
   await loadChats();
   connectStreams();
@@ -29,7 +25,7 @@ function bindEvents() {
   if (refreshBtn) refreshBtn.onclick = loadLogs;
   
   $('#clearLogs').onclick = async () => { 
-    if (confirm('¿Limpiar logs locales de esta cuenta?')) { 
+    if (confirm('¿Limpiar los logs locales del bot?')) { 
       await IbotApi.clearLogs(); 
       await loadLogs(); 
     } 
@@ -82,7 +78,6 @@ function showTab(tab) {
 }
 
 async function loadLogs() {
-  if (!IbotApi.getAccount()) return;
   const params = new URLSearchParams();
   if ($('#level').value) params.set('level', $('#level').value);
   if ($('#searchLog').value) params.set('q', $('#searchLog').value);
@@ -122,42 +117,87 @@ function startLogPolling() {
 }
 
 async function loadChats(q = '') {
-  if (!IbotApi.getAccount()) return;
   groups = await IbotApi.chatGroups(q).catch(() => []);
-  
-  $('#chatItems').innerHTML = groups.map((g) => {
-    const isSelected = selectedGroup === g.groupId;
-    
-    // Status icons (SVG)
-    const statusIcon = g.configured
-      ? `<svg class="chat-status-icon configured" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#39ff6a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" title="Agregado"><polyline points="20 6 9 17 4 12"/></svg>`
-      : `<svg class="chat-status-icon not-configured" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#a4a9c4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="No agregado"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`;
-      
-    const avatarContent = g.pictureUrl 
-      ? `<img src="${g.pictureUrl}" class="chat-item-avatar-img">`
-      : `<div class="chat-item-avatar-placeholder">${escapeHtml((g.subject || 'G')[0].toUpperCase())}</div>`;
-      
-    const lastMsg = g.lastMessagePreview || 'Sin mensajes';
 
-    return `
-      <div class="chat-item-card ${isSelected ? 'active' : ''}" onclick="selectGroup('${encodeURIComponent(g.groupId)}')">
-        <div class="chat-item-avatar-circle">
-          ${avatarContent}
-        </div>
-        <div class="chat-item-info">
-          <div class="chat-item-title-row">
-            <span class="chat-item-subject-name">${escapeHtml(g.subject || g.groupId)}</span>
-            <span class="chat-item-icon-wrapper">${statusIcon}</span>
-          </div>
-          <div class="chat-item-msg-preview" title="${escapeHtml(lastMsg)}">${escapeHtml(lastMsg)}</div>
-        </div>
-      </div>
-    `;
-  }).join('') || '<div class="empty-state">Aún no hay chats detectados.</div>';
+  const container = $('#chatItems');
+  container.innerHTML = '';
+
+  if (!groups.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Aún no hay chats detectados.';
+    container.appendChild(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  for (const g of groups) {
+    const isSelected = selectedGroup === g.groupId;
+
+    // Card wrapper
+    const card = document.createElement('div');
+    card.className = `chat-item-card${isSelected ? ' active' : ''}`;
+    card.addEventListener('click', () => selectGroup(g.groupId));
+
+    // Avatar circle
+    const avatarCircle = document.createElement('div');
+    avatarCircle.className = 'chat-item-avatar-circle';
+
+    if (g.pictureUrl) {
+      const img = document.createElement('img');
+      img.src = g.pictureUrl;
+      img.className = 'chat-item-avatar-img';
+      img.alt = g.subject || g.groupId;
+      avatarCircle.appendChild(img);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'chat-item-avatar-placeholder';
+      placeholder.textContent = (g.subject || 'G')[0].toUpperCase();
+      avatarCircle.appendChild(placeholder);
+    }
+
+    // Info section
+    const info = document.createElement('div');
+    info.className = 'chat-item-info';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'chat-item-title-row';
+
+    const subjectSpan = document.createElement('span');
+    subjectSpan.className = 'chat-item-subject-name';
+    subjectSpan.textContent = g.subject || g.groupId;
+
+    const iconWrapper = document.createElement('span');
+    iconWrapper.className = 'chat-item-icon-wrapper';
+    if (g.configured) {
+      iconWrapper.innerHTML = `<svg class="chat-status-icon configured" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#39ff6a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" title="Agregado"><polyline points="20 6 9 17 4 12"/></svg>`;
+    } else {
+      iconWrapper.innerHTML = `<svg class="chat-status-icon not-configured" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#a4a9c4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="No agregado"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`;
+    }
+
+    titleRow.appendChild(subjectSpan);
+    titleRow.appendChild(iconWrapper);
+
+    const preview = document.createElement('div');
+    preview.className = 'chat-item-msg-preview';
+    const lastMsg = g.lastMessagePreview || 'Sin mensajes';
+    preview.title = lastMsg;
+    preview.textContent = lastMsg;
+
+    info.appendChild(titleRow);
+    info.appendChild(preview);
+
+    card.appendChild(avatarCircle);
+    card.appendChild(info);
+    fragment.appendChild(card);
+  }
+
+  container.appendChild(fragment);
 }
 
-async function selectGroup(encoded) {
-  selectedGroup = decodeURIComponent(encoded);
+async function selectGroup(groupId) {
+  selectedGroup = groupId;
   const g = groups.find((x) => x.groupId === selectedGroup) || { groupId: selectedGroup };
   $('#chatName').textContent = g.subject || g.groupId;
   $('#chatId').textContent = g.groupId;
@@ -220,6 +260,10 @@ function openGroupConfigModal(groupId, config) {
     $('#field-independiente').checked = !!config.independiente;
     $('#field-limite').value = config.limite ?? '';
     $('#field-contador').value = config.contador ?? 0;
+    $('#field-commands-enabled').checked = !!config.commandSettings?.enabled;
+    $('#field-command-prefix').value = config.commandSettings?.prefix || '!';
+    $('#field-welcome-message').value = config.commandSettings?.welcomeMessage || '¡Bienvenido/a {user} a {group}!';
+    $('#field-farewell-message').value = config.commandSettings?.farewellMessage || '{user} ha salido de {group}.';
     $('#modalTitle').textContent = 'Editar configuración de grupo';
   } else {
     // Configure new group
@@ -236,10 +280,23 @@ function openGroupConfigModal(groupId, config) {
     $('#field-independiente').checked = false;
     $('#field-limite').value = '';
     $('#field-contador').value = 0;
+    $('#field-commands-enabled').checked = false;
+    $('#field-command-prefix').value = '!';
+    $('#field-welcome-message').value = '¡Bienvenido/a {user} a {group}!';
+    $('#field-farewell-message').value = '{user} ha salido de {group}.';
     $('#modalTitle').textContent = 'Configurar nuevo grupo';
   }
+  syncGroupCommandFields();
   modalEl.classList.add('show');
   modalEl.style.display = 'flex';
+}
+
+function syncGroupCommandFields() {
+  const enabled = !!$('#field-commands-enabled')?.checked;
+  const container = $('#group-command-fields');
+  if (!container) return;
+  container.classList.toggle('is-disabled', !enabled);
+  container.querySelectorAll('input, textarea').forEach((input) => { input.disabled = !enabled; });
 }
 
 function closeModal() {
@@ -262,6 +319,12 @@ function getFormPayload() {
     independiente: !!$('#field-independiente').checked,
     limite: $('#field-limite').value === '' ? null : Number($('#field-limite').value),
     contador: Number($('#field-contador').value || 0),
+    commandSettings: {
+      enabled: !!$('#field-commands-enabled').checked,
+      prefix: $('#field-command-prefix').value.trim() || '!',
+      welcomeMessage: $('#field-welcome-message').value.trim(),
+      farewellMessage: $('#field-farewell-message').value.trim(),
+    },
   };
 }
 
@@ -279,7 +342,7 @@ async function saveForm(e) {
     }
     closeModal();
     await loadChats($('#chatSearch').value);
-    await selectGroup(encodeURIComponent(data.groupId));
+    await selectGroup(data.groupId);
   } catch (err) {
     toast('❌ ' + err.message);
   }
@@ -292,7 +355,6 @@ async function handleGroupButtonClick() {
 }
 
 function connectStreams() {
-  if (!IbotApi.getAccount()) return;
   if (chatSource) chatSource.close();
   if (logSource) logSource.close();
   try {
@@ -318,4 +380,5 @@ function connectStreams() {
   }
 }
 
+$('#field-commands-enabled')?.addEventListener('change', syncGroupCommandFields);
 init();

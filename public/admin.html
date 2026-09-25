@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ibot — Administración</title>
+  <meta name="description" content="Panel de administración de cuentas del bot de WhatsApp Ibot.">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    :root { --container-max: 1200px; }
+
+    /* ── KPI Grid ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      padding: 18px 20px;
+      background: var(--panel);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--card-radius);
+      backdrop-filter: blur(14px);
+      position: relative;
+      overflow: hidden;
+      transition: var(--transition);
+    }
+    .kpi-card:hover { border-color: rgba(0,229,255,.2); transform: translateY(-2px); }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), #0088ff);
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .kpi-card:hover::before { opacity: 1; }
+    .kpi-icon { font-size: 22px; margin-bottom: 10px; }
+    .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 4px; }
+    .kpi-value { font-size: 28px; font-weight: 900; color: #fff; line-height: 1; }
+    .kpi-value.accent { color: var(--accent); }
+    .kpi-value.green { color: var(--success); }
+
+    /* ── Layout Principal ── */
+    .admin-layout {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    /* ── Barra de herramientas de la lista ── */
+    .list-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .list-toolbar-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+    }
+    .list-toolbar-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .refresh-btn {
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border-soft);
+      border-radius: 10px;
+      color: var(--muted);
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .refresh-btn:hover { background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.15); }
+    .refresh-btn.spinning svg { animation: spin-icon .7s linear infinite; }
+    @keyframes spin-icon { to { transform: rotate(360deg); } }
+
+    /* ── Account Cards ── */
+    .account-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .account-card {
+      background: var(--panel);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--card-radius);
+      padding: 16px 18px;
+      backdrop-filter: blur(14px);
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+    .account-card:hover { border-color: rgba(255,255,255,.14); }
+    .account-card.is-owner { border-color: rgba(0,229,255,.2); }
+    .account-card.is-owner::after {
+      content: 'OWNER';
+      position: absolute;
+      top: 14px; right: 14px;
+      font-size: 9px; font-weight: 900;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: rgba(0,229,255,.12);
+      border: 1px solid rgba(0,229,255,.3);
+      color: var(--accent);
+    }
+
+    .ac-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .ac-avatar {
+      width: 44px; height: 44px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #1a2036 0%, #111620 100%);
+      border: 1px solid rgba(255,255,255,.07);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 800; color: var(--accent);
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .ac-info { min-width: 0; flex: 1; }
+    .ac-name { font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ac-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .ac-status-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 9px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .badge-connected { background: rgba(57,255,20,.08); border-color: rgba(57,255,20,.3); color: #39ff14; }
+    .badge-stopped { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); color: var(--muted); }
+    .badge-error { background: rgba(255,23,68,.08); border-color: rgba(255,23,68,.3); color: var(--danger); }
+    .badge-logged_out { background: rgba(255,152,0,.08); border-color: rgba(255,152,0,.3); color: #ff9800; }
+    .badge-mode { background: rgba(0,136,255,.08); border-color: rgba(0,136,255,.25); color: #60a5fa; }
+    .badge-neutral { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.08); color: var(--muted); }
+    .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+    .ac-metrics { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+    .ac-metric { display: flex; flex-direction: column; }
+    .ac-metric-val { font-size: 16px; font-weight: 800; color: #fff; }
+    .ac-metric-lbl { font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; margin-top: 1px; }
+
+    .ac-divider { height: 1px; background: var(--border-soft); margin-bottom: 12px; }
+
+    .ac-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ac-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 13px;
+      border-radius: 10px;
+      font-size: 12px; font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      font-family: inherit;
+      transition: var(--transition);
+    }
+    .ac-btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .ac-btn-start { background: rgba(57,255,20,.08); border-color: rgba(57,255,20,.3); color: #39ff14; }
+    .ac-btn-start:hover { background: rgba(57,255,20,.18); transform: translateY(-1px); }
+    .ac-btn-stop { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); color: #e0e0e0; }
+    .ac-btn-stop:hover { background: rgba(255,255,255,.1); transform: translateY(-1px); }
+    .ac-btn-logout { background: rgba(255,152,0,.07); border-color: rgba(255,152,0,.25); color: #ff9800; }
+    .ac-btn-logout:hover { background: rgba(255,152,0,.15); transform: translateY(-1px); }
+    .ac-btn-pwd { background: rgba(0,229,255,.06); border-color: rgba(0,229,255,.2); color: var(--accent); }
+    .ac-btn-pwd:hover { background: rgba(0,229,255,.14); transform: translateY(-1px); }
+    .ac-btn-delete { background: rgba(255,23,68,.07); border-color: rgba(255,23,68,.25); color: var(--danger); }
+    .ac-btn-delete:hover { background: rgba(255,23,68,.16); transform: translateY(-1px); }
+    .ac-no-account { font-size: 12px; color: var(--muted); font-style: italic; }
+
+    .last-login { font-size: 11px; color: #525a72; margin-top: 8px; }
+
+    /* ── Panel lateral (crear cuenta) ── */
+    .side-panel { position: sticky; top: 80px; }
+    .side-panel-title { font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+    .side-panel-sub { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
+    .form-stack { display: flex; flex-direction: column; gap: 14px; }
+    .form-field-label { font-size: 12px; font-weight: 700; color: var(--muted); display: block; margin-bottom: 6px; }
+    .pwd-hint { font-size: 11px; color: #525a72; margin-top: 5px; line-height: 1.4; }
+    .form-error { font-size: 12px; color: var(--danger); margin-top: -6px; min-height: 16px; }
+
+    /* ── Modal ── */
+    #pwdModal .modal-card { width: min(440px,100%); }
+    .modal-title { font-size: 17px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+    .modal-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .modal-actions .btn { flex: 1; }
+
+    /* ── Access denied ── */
+    .access-denied { max-width: 480px; margin: 80px auto; text-align: center; }
+    .access-denied .title { margin-bottom: 10px; }
+    .access-denied p { color: var(--muted); font-size: 14px; }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 50px 20px; color: var(--muted); }
+    .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .admin-layout { grid-template-columns: 1fr; }
+      .side-panel { position: static; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .ac-metrics { gap: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav">
+    <div class="top-inner">
+      <div class="brand">
+        <div class="logo">IB</div>
+        <div>
+          <div style="font-weight:800;font-size:15px;line-height:1.1;">Ibot Admin</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.1;">Panel de Administración</div>
+        </div>
+      </div>
+      <nav class="top-links">
+        <a href="/admin.html" class="active" title="Administración">🛡️ Admin</a>
+        <a href="/" title="Panel del Bot">🤖 Bot</a>
+        <a href="/grupos.html" title="Grupos">👥 Grupos</a>
+        <a href="/configuracion.html" title="Configuración">⚙️ Config</a>
+        <a href="/logs.html" title="Logs">📜 Logs</a>
+        <button id="panelLogoutBtn" class="linklike" type="button" title="Cerrar sesión" style="filter:drop-shadow(0 0 2px rgba(255,23,68,.85));">🚪</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container" id="adminApp">
+      <div class="panel" style="text-align:center;padding:60px 20px;">
+        <div style="width:40px;height:40px;border:3px solid rgba(0,229,255,.15);border-top-color:var(--accent);border-radius:50%;animation:spin-icon .8s linear infinite;margin:0 auto 16px;"></div>
+        <div style="color:var(--muted);font-size:14px;">Cargando panel de administración…</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal cambiar contraseña -->
+  <div id="pwdModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pwdModalTitle">
+    <div class="modal-card">
+      <div class="modal-title" id="pwdModalTitle">Cambiar contraseña</div>
+      <div class="modal-sub" id="pwdModalSub">Elige una contraseña fuerte para la cuenta.</div>
+      <div class="form-stack">
+        <div>
+          <label class="form-field-label" for="newPwdInput">Nueva contraseña</label>
+          <input id="newPwdInput" type="password" placeholder="Mínimo 12 caracteres" autocomplete="new-password">
+          <div class="pwd-hint">Mínimo 12 caracteres · Mayúsculas, minúsculas y números</div>
+        </div>
+        <div>
+          <label class="form-field-label" for="confirmPwdInput">Confirmar contraseña</label>
+          <input id="confirmPwdInput" type="password" placeholder="Repite la contraseña" autocomplete="new-password">
+        </div>
+        <p id="pwdModalError" class="form-error"></p>
+      </div>
+      <div class="modal-actions">
+        <button id="pwdModalCancel" class="btn util" type="button">Cancelar</button>
+        <button id="pwdModalSave" class="btn" type="button">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

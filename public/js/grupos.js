@@ -17,10 +17,53 @@ const fieldRespuesta = document.getElementById('field-respuesta');
 const fieldIndependiente = document.getElementById('field-independiente');
 const fieldLimite = document.getElementById('field-limite');
 const fieldContador = document.getElementById('field-contador');
+const fieldCommandsEnabled = document.getElementById('field-commands-enabled');
+const fieldCommandPrefix = document.getElementById('field-command-prefix');
+const fieldWelcomeMessage = document.getElementById('field-welcome-message');
+const fieldFarewellMessage = document.getElementById('field-farewell-message');
+const groupCommandFields = document.getElementById('group-command-fields');
 
 /* Estado local */
 let groups = [];
 let currentConfig = null;
+
+/* ---- Orden de grupos — dos niveles (categorías + grupos dentro) ---- */
+function _getGroupOrder() {
+  return currentConfig?.groupOrder || [];
+}
+function _getCatOrder() {
+  return currentConfig?.categoryOrder || [];
+}
+
+function _applyGroupOrder(arr) {
+  const catOrder   = _getCatOrder();
+  const groupOrder = _getGroupOrder();
+
+  // Agrupar por categoría
+  const catMap = new Map();
+  for (const g of arr) {
+    const cat = g.grupo || 'otros';
+    if (!catMap.has(cat)) catMap.set(cat, []);
+    catMap.get(cat).push(g);
+  }
+
+  // Ordenar categorías según catOrder
+  const orderedCats = [];
+  const catMapCopy = new Map(catMap);
+  for (const c of catOrder) { if (catMapCopy.has(c)) { orderedCats.push(c); catMapCopy.delete(c); } }
+  for (const c of catMapCopy.keys()) orderedCats.push(c);
+
+  // Aplanar respetando orden de grupos dentro de cada categoría
+  const result = [];
+  for (const cat of orderedCats) {
+    const catGroups = catMap.get(cat) || [];
+    if (!groupOrder.length) { result.push(...catGroups); continue; }
+    const gmap = new Map(catGroups.map(g => [g.groupId, g]));
+    for (const id of groupOrder) { if (gmap.has(id)) { result.push(gmap.get(id)); gmap.delete(id); } }
+    for (const g of gmap.values()) result.push(g);
+  }
+  return result;
+}
 
 /* ---- Utilidades de UI ---- */
 function setRespBtn(btn, isOn) {
@@ -34,24 +77,23 @@ function showEmpty(msg) {
   categoriesEl.innerHTML = `<div class="empty-state">${msg}</div>`;
 }
 
+function syncCommandFields() {
+  const enabled = !!fieldCommandsEnabled.checked;
+  groupCommandFields.classList.toggle('is-disabled', !enabled);
+  for (const input of groupCommandFields.querySelectorAll('input, textarea')) input.disabled = !enabled;
+}
+
 /* ---- Carga principal ---- */
 async function loadGroups() {
   try {
-    // fillAccounts garantiza que accountId esté seteado en IbotApi
-    const accounts = await fillAccounts();
-    if (!accounts || !accounts.length) {
-      showEmpty('No hay cuentas configuradas. Crea una en la pantalla principal.');
-      return;
-    }
-
-    // Ahora sí podemos usar IbotApi.groups() con seguridad
+    await loadUserBot();
     const [data, config] = await Promise.all([
       IbotApi.groups(),
       IbotApi.config().catch(() => null),
     ]);
 
     currentConfig = config;
-    groups = Array.isArray(data) ? data : [];
+    groups = Array.isArray(data) ? _applyGroupOrder(data) : [];
 
     const respBtn = document.getElementById('btn-toggle-nonind');
     if (respBtn) setRespBtn(respBtn, !!currentConfig?.respuestas);
@@ -165,6 +207,24 @@ function renderGroups() {
       const actionsCol = document.createElement('div');
       actionsCol.className = 'controls';
 
+      const groupCommandsEnabled = !!g.commandSettings?.enabled;
+      const globalCommandsEnabled = !!currentConfig?.adminCommands?.enabled;
+      const btnCommands = document.createElement('button');
+      btnCommands.type = 'button';
+      btnCommands.className = `btn-icon command-state ${
+        groupCommandsEnabled && globalCommandsEnabled
+          ? 'commands-on'
+          : (groupCommandsEnabled ? 'commands-standby' : 'commands-off')
+      }`;
+      btnCommands.title = groupCommandsEnabled
+        ? (globalCommandsEnabled ? 'Comandos activos en este grupo' : 'Grupo habilitado; comandos globales apagados')
+        : 'Comandos desactivados en este grupo';
+      btnCommands.textContent = '⌘';
+      btnCommands.setAttribute('aria-label', btnCommands.title);
+      btnCommands.setAttribute('aria-pressed', String(groupCommandsEnabled));
+      btnCommands.addEventListener('click', () => toggleGroupCommands(g.groupId));
+      actionsCol.appendChild(btnCommands);
+
       const btnEdit = document.createElement('button');
       btnEdit.type = 'button';
       btnEdit.className = 'btn-icon edit';
@@ -236,6 +296,11 @@ function openNewForCategory(cat = 'otros') {
   fieldIndependiente.checked = false;
   fieldLimite.value = '';
   fieldContador.value = '0';
+  fieldCommandsEnabled.checked = false;
+  fieldCommandPrefix.value = '!';
+  fieldWelcomeMessage.value = '¡Bienvenido/a {user} a {group}!';
+  fieldFarewellMessage.value = '{user} ha salido de {group}.';
+  syncCommandFields();
   modalTitle.textContent = 'Nuevo grupo';
   openModal();
 }
@@ -253,6 +318,11 @@ function openEdit(g) {
   fieldIndependiente.checked = !!g.independiente;
   fieldLimite.value = g.limite ?? '';
   fieldContador.value = g.contador ?? 0;
+  fieldCommandsEnabled.checked = !!g.commandSettings?.enabled;
+  fieldCommandPrefix.value = g.commandSettings?.prefix || '!';
+  fieldWelcomeMessage.value = g.commandSettings?.welcomeMessage || '¡Bienvenido/a {user} a {group}!';
+  fieldFarewellMessage.value = g.commandSettings?.farewellMessage || '{user} ha salido de {group}.';
+  syncCommandFields();
   modalTitle.textContent = 'Editar grupo';
   openModal();
 }
@@ -269,6 +339,12 @@ function buildPayload() {
     independiente: !!fieldIndependiente.checked,
     limite: fieldLimite.value === '' ? null : Number(fieldLimite.value),
     contador: Number(fieldContador.value || 0),
+    commandSettings: {
+      enabled: !!fieldCommandsEnabled.checked,
+      prefix: fieldCommandPrefix.value.trim() || '!',
+      welcomeMessage: fieldWelcomeMessage.value.trim(),
+      farewellMessage: fieldFarewellMessage.value.trim(),
+    },
   };
 }
 
@@ -346,6 +422,15 @@ async function toggleResponder(groupId) {
   }
 }
 
+async function toggleGroupCommands(groupId) {
+  try {
+    await IbotApi.toggleGroupCommands(groupId);
+    await loadGroups();
+  } catch (err) {
+    toast('❌ ' + err.message);
+  }
+}
+
 /* ---- Toggle grupos independientes ---- */
 async function toggleIndependentGroups() {
   const btn = document.getElementById('btn-toggle-ind');
@@ -396,6 +481,7 @@ function bind() {
   document.getElementById('btn-toggle-nonind').addEventListener('click', toggleGlobalResponses);
   document.getElementById('btn-cancel').addEventListener('click', closeModal);
   document.getElementById('form').addEventListener('submit', saveForm);
+  fieldCommandsEnabled.addEventListener('change', syncCommandFields);
 }
 
 /* ---- Arranque ---- */

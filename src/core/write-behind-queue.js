@@ -32,21 +32,56 @@ export class WriteBehindQueue {
     this.pendingCounters = 0;
     this.pendingGroups.clear();
 
-    const ops = [];
+    if (counterInc === 0 && groupIncs.size === 0) return;
+
+    // Build labeled operations so we can trace failures back to their source
+    const labeled = [];
     if (counterInc > 0) {
-      ops.push(this.collections.counters.updateOne(
-        { accountId: this.accountId, name: 'OrdenesRecibidas' },
-        { $inc: { seq: counterInc }, $set: { updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
-        { upsert: true },
-      ));
+      labeled.push({
+        label: 'counter',
+        counterInc,
+        promise: this.collections.counters.updateOne(
+          { accountId: this.accountId, name: 'OrdenesRecibidas' },
+          { $inc: { seq: counterInc }, $set: { updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
+          { upsert: true },
+        ),
+      });
     }
 
     for (const [groupId, inc] of groupIncs.entries()) {
-      ops.push(this.collections.groups.updateOne(
-        { accountId: this.accountId, groupId },
-        { $inc: { contador: inc }, $set: { updatedAt: new Date() } },
-      ));
+      labeled.push({
+        label: `group:${groupId}`,
+        groupId,
+        groupInc: inc,
+        promise: this.collections.groups.updateOne(
+          { accountId: this.accountId, groupId },
+          { $inc: { contador: inc }, $set: { updatedAt: new Date() } },
+        ),
+      });
     }
-    await Promise.allSettled(ops);
+
+    const results = await Promise.allSettled(labeled.map((l) => l.promise));
+
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        const entry = labeled[i];
+        const reason = results[i].reason?.message || String(results[i].reason);
+        this.logger?.error('queue', `Flush falló para ${entry.label}`, { error: reason });
+
+        // Re-enqueue failed increments so data is not silently lost
+        if (entry.counterInc) {
+          this.pendingCounters += entry.counterInc;
+        }
+        if (entry.groupId && entry.groupInc) {
+          const current = this.pendingGroups.get(entry.groupId) || 0;
+          this.pendingGroups.set(entry.groupId, current + entry.groupInc);
+        }
+      }
+    }
+
+    // If any operations were re-enqueued, schedule another flush attempt
+    if (this.pendingCounters > 0 || this.pendingGroups.size > 0) {
+      this.schedule();
+    }
   }
 }

@@ -1,20 +1,25 @@
 import { Router } from 'express';
-import { ensureAccount, listAccounts, getConfig, defaultBotConfig } from '../services/account-service.js';
+import { getUserAccount, getConfig, defaultBotConfig } from '../services/account-service.js';
+import {
+  buildDirectorySnapshot,
+  directoryCsv,
+  paginateDirectory,
+} from '../services/directory-service.js';
 import { cleanGroupPayload, normalizeGroupDoc } from '../bot/utils/group-normalizer.js';
-import { normalizeAccountId, publicSafeAccount, publicSafeConfig, now } from '../core/utils.js';
+import { normalizeAdminCommandsConfig } from '../services/admin-command-service.js';
+import { isValidTimeZone } from '../services/message-scheduler.js';
+import { publicSafeAccount, publicSafeConfig, now } from '../core/utils.js';
 
-export function createMainRouter({ collections, registry }) {
+export function createMainRouter({ collections, registry, scheduler }) {
   const router = Router();
 
-  router.param('accountId', async (req, res, next, accountIdRaw) => {
+  router.get('/api/health', (req, res) => res.json({ ok: true, version: '2.1.0' }));
+
+  router.use('/api/bot', async (req, res, next) => {
     try {
-      const accountId = normalizeAccountId(accountIdRaw);
-      const userId = req.panelUser?.uid;
-      const account = await collections.accounts.findOne({ accountId, userId });
-      if (!account) {
-        return res.status(403).json({ error: 'Cuenta no encontrada o acceso denegado' });
-      }
-      req.resolvedAccountId = accountId;
+      const account = await getUserAccount(collections, req.panelUser);
+      req.botAccount = account;
+      req.resolvedAccountId = account.accountId;
       next();
     } catch (err) {
       next(err);
@@ -26,53 +31,39 @@ export function createMainRouter({ collections, registry }) {
     return req.resolvedAccountId;
   }
 
-  router.get('/api/health', (req, res) => res.json({ ok: true, version: '2.0.0' }));
+  router.get('/api/bot', (req, res) => res.json(publicSafeAccount(req.botAccount)));
 
-  router.get('/api/accounts', async (req, res) => {
-    const accounts = await listAccounts(collections, req.panelUser?.uid);
-    res.json(accounts.map(publicSafeAccount));
-  });
-
-  router.post('/api/accounts', async (req, res) => {
-    try {
-      const account = await ensureAccount(collections, req.body.accountId, req.body.label, req.panelUser?.uid);
-      await registry.get(account.accountId);
-      res.json(publicSafeAccount(account));
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
-  router.get('/api/accounts/:accountId/status', async (req, res) => {
+  router.get('/api/bot/status', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     const counter = await collections.counters.findOne({ accountId: runtime.accountId, name: 'OrdenesRecibidas' });
     const status = runtime.getPublicStatus();
     status.ordenesRecibidas = counter?.seq ?? status.ordenesRecibidas;
+    status.hasSession = await runtime.hasSavedSession();
     res.json(status);
   });
 
-  router.post('/api/accounts/:accountId/start', async (req, res) => {
+  router.post('/api/bot/start', async (req, res) => {
     try { res.json(await registry.start(resolveAccountId(req))); }
     catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  router.post('/api/accounts/:accountId/stop', async (req, res) => {
+  router.post('/api/bot/stop', async (req, res) => {
     try { res.json(await registry.stop(resolveAccountId(req), 'manual_stop')); }
     catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  router.post('/api/accounts/:accountId/logout', async (req, res) => {
+  router.post('/api/bot/logout', async (req, res) => {
     try { res.json(await registry.logout(resolveAccountId(req))); }
     catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  router.get('/api/accounts/:accountId/config', async (req, res) => {
+  router.get('/api/bot/config', async (req, res) => {
     const accountId = resolveAccountId(req);
     const config = await getConfig(collections, accountId) || defaultBotConfig(accountId);
     res.json(publicSafeConfig(config));
   });
 
-  router.put('/api/accounts/:accountId/config', async (req, res) => {
+  router.put('/api/bot/config', async (req, res) => {
     try {
       const accountId = resolveAccountId(req);
       const current = await getConfig(collections, accountId) || defaultBotConfig(accountId);
@@ -99,6 +90,14 @@ export function createMainRouter({ collections, registry }) {
           message: String(body.connectionNotification.message || '').trim()
         };
       }
+      if (body.timezone !== undefined) {
+        const timezone = String(body.timezone || '').trim();
+        if (!isValidTimeZone(timezone)) return res.status(400).json({ error: 'Zona horaria inválida' });
+        set.timezone = timezone;
+      }
+      if (body.adminCommands !== undefined) {
+        set.adminCommands = normalizeAdminCommandsConfig(body.adminCommands);
+      }
       await collections.configs.updateOne({ accountId }, { $set: set }, { upsert: true });
       const runtime = await registry.get(accountId);
       await runtime.reloadConfig();
@@ -109,7 +108,58 @@ export function createMainRouter({ collections, registry }) {
     }
   });
 
-  router.post('/api/accounts/:accountId/respuestas/toggle', async (req, res) => {
+  router.post('/api/bot/config/conn-notification/test', async (req, res) => {
+    try {
+      const accountId = resolveAccountId(req);
+      const runtime = await registry.get(accountId);
+      if (!runtime.socket || runtime.status !== 'connected') {
+        return res.status(400).json({ error: 'El bot no está conectado a WhatsApp. Conéctalo desde el Home primero.' });
+      }
+      const { groupId, message } = req.body || {};
+      if (!groupId || !message) {
+        return res.status(400).json({ error: 'El grupo destinatario y el mensaje son requeridos.' });
+      }
+      const sendStart = performance.now();
+      await runtime.socket.sendMessage(groupId, { text: `[Prueba de Notificación]\n${message}` });
+      const sendTime = performance.now() - sendStart;
+
+      console.log(
+        `[LATENCY] [${accountId}] Mensaje de prueba enviado a grupo ${groupId}:` +
+        ` | Envío Socket: ${sendTime.toFixed(2)}ms` +
+        ` | TOTAL: ${sendTime.toFixed(2)}ms`
+      );
+
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  router.put('/api/bot/config/order', async (req, res) => {
+    try {
+      const accountId = resolveAccountId(req);
+      const { categoryOrder, groupOrder } = req.body || {};
+      const set = { updatedAt: now() };
+      if (categoryOrder !== undefined) {
+        if (!Array.isArray(categoryOrder)) return res.status(400).json({ error: 'categoryOrder debe ser un array' });
+        set.categoryOrder = categoryOrder;
+      }
+      if (groupOrder !== undefined) {
+        if (!Array.isArray(groupOrder)) return res.status(400).json({ error: 'groupOrder debe ser un array' });
+        set.groupOrder = groupOrder;
+      }
+      await collections.configs.updateOne({ accountId }, { $set: set }, { upsert: true });
+      const runtime = await registry.get(accountId);
+      await runtime.reloadConfig();
+      const updated = await getConfig(collections, accountId);
+      res.json(publicSafeConfig(updated));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/bot/respuestas/toggle', async (req, res) => {
     const accountId = resolveAccountId(req);
     const config = await getConfig(collections, accountId);
     const next = !config?.respuestas;
@@ -119,19 +169,44 @@ export function createMainRouter({ collections, registry }) {
     res.json({ respuestas: next });
   });
 
-  router.get('/api/accounts/:accountId/grupos', async (req, res) => {
+  router.put('/api/bot/grupos/:groupId/commands/toggle', async (req, res) => {
+    try {
+      const accountId = resolveAccountId(req);
+      const groupId = decodeURIComponent(req.params.groupId);
+      const existing = await collections.groups.findOne({ accountId, groupId });
+      if (!existing) return res.status(404).json({ error: 'grupo no encontrado' });
+      const current = normalizeGroupDoc(existing);
+      const nextEnabled = !current.commandSettings.enabled;
+      await collections.groups.updateOne(
+        { accountId, groupId },
+        {
+          $set: {
+            'commandSettings.enabled': nextEnabled,
+            updatedAt: now(),
+          },
+        },
+      );
+      const runtime = await registry.get(accountId);
+      await runtime.reloadGroups();
+      res.json({ ok: true, enabled: nextEnabled });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.get('/api/bot/grupos', async (req, res) => {
     const accountId = resolveAccountId(req);
     const rows = await collections.groups.find({ accountId }).sort({ grupo: 1, nombre: 1 }).toArray();
     res.json(rows.map(normalizeGroupDoc));
   });
 
-  router.get('/api/accounts/:accountId/grupos/categories', async (req, res) => {
+  router.get('/api/bot/grupos/categories', async (req, res) => {
     const accountId = resolveAccountId(req);
     const rows = await collections.groups.distinct('grupo', { accountId });
     res.json(rows.filter(Boolean).sort());
   });
 
-  router.post('/api/accounts/:accountId/grupos', async (req, res) => {
+  router.post('/api/bot/grupos', async (req, res) => {
     try {
       const accountId = resolveAccountId(req);
       const doc = cleanGroupPayload(req.body, accountId);
@@ -146,7 +221,7 @@ export function createMainRouter({ collections, registry }) {
   });
 
   // IMPORTANT: rutas estáticas ANTES de /:groupId para evitar colisión en Express
-  router.post('/api/accounts/:accountId/grupos/toggle_independent', async (req, res) => {
+  router.post('/api/bot/grupos/toggle_independent', async (req, res) => {
     try {
       const accountId = resolveAccountId(req);
       const active = await collections.groups.countDocuments({ accountId, independiente: true, responder: true }) > 0;
@@ -160,7 +235,7 @@ export function createMainRouter({ collections, registry }) {
     }
   });
 
-  router.get('/api/accounts/:accountId/grupos/:groupId', async (req, res) => {
+  router.get('/api/bot/grupos/:groupId', async (req, res) => {
     const accountId = resolveAccountId(req);
     const groupId = decodeURIComponent(req.params.groupId);
     const doc = await collections.groups.findOne({ accountId, groupId });
@@ -168,7 +243,7 @@ export function createMainRouter({ collections, registry }) {
     res.json(normalizeGroupDoc(doc));
   });
 
-  router.put('/api/accounts/:accountId/grupos/:groupId', async (req, res) => {
+  router.put('/api/bot/grupos/:groupId', async (req, res) => {
     try {
       const accountId = resolveAccountId(req);
       const groupId = decodeURIComponent(req.params.groupId);
@@ -186,7 +261,7 @@ export function createMainRouter({ collections, registry }) {
     }
   });
 
-  router.delete('/api/accounts/:accountId/grupos/:groupId', async (req, res) => {
+  router.delete('/api/bot/grupos/:groupId', async (req, res) => {
     const accountId = resolveAccountId(req);
     const groupId = decodeURIComponent(req.params.groupId);
     const result = await collections.groups.deleteOne({ accountId, groupId });
@@ -195,7 +270,7 @@ export function createMainRouter({ collections, registry }) {
     res.json({ ok: result.deletedCount > 0 });
   });
 
-  router.post('/api/accounts/:accountId/grupos/:groupId/reset-contador', async (req, res) => {
+  router.post('/api/bot/grupos/:groupId/reset-contador', async (req, res) => {
     const accountId = resolveAccountId(req);
     const groupId = decodeURIComponent(req.params.groupId);
     await collections.groups.updateOne({ accountId, groupId }, { $set: { contador: 0, updatedAt: now() } });
@@ -204,19 +279,19 @@ export function createMainRouter({ collections, registry }) {
     res.json({ ok: true });
   });
 
-  router.get('/api/accounts/:accountId/logs/console', async (req, res) => {
+  router.get('/api/bot/logs/console', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     const rows = await runtime.logger.read({ limit: req.query.limit, level: req.query.level, q: req.query.q });
     res.json(rows);
   });
 
-  router.delete('/api/accounts/:accountId/logs/console', async (req, res) => {
+  router.delete('/api/bot/logs/console', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     await runtime.logger.clear();
     res.json({ ok: true });
   });
 
-  router.get('/api/accounts/:accountId/logs/stream', async (req, res) => {
+  router.get('/api/bot/logs/stream', async (req, res) => {
     const accountId = resolveAccountId(req);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -230,7 +305,7 @@ export function createMainRouter({ collections, registry }) {
     req.on('close', off);
   });
 
-  router.get('/api/accounts/:accountId/chats/groups', async (req, res) => {
+  router.get('/api/bot/chats/groups', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     const configured = await collections.groups.find({ accountId: runtime.accountId }).toArray();
     const configuredMap = new Map(configured.map((g) => [g.groupId, g]));
@@ -252,13 +327,13 @@ export function createMainRouter({ collections, registry }) {
     res.json(enriched);
   });
 
-  router.get('/api/accounts/:accountId/chats/groups/:groupId/messages', async (req, res) => {
+  router.get('/api/bot/chats/groups/:groupId/messages', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     const rows = await runtime.chatStore.readMessages(decodeURIComponent(req.params.groupId), { limit: req.query.limit });
     res.json(rows);
   });
 
-  router.get('/api/accounts/:accountId/chats/groups/:groupId/info', async (req, res) => {
+  router.get('/api/bot/chats/groups/:groupId/info', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     const groupId = decodeURIComponent(req.params.groupId);
     const group = runtime.chatStore.groups.get(groupId) || { groupId };
@@ -273,7 +348,80 @@ export function createMainRouter({ collections, registry }) {
     });
   });
 
-  router.get('/api/accounts/:accountId/events/chats', async (req, res) => {
+  router.get('/api/bot/directory/export.csv', async (req, res) => {
+    try {
+      const runtime = await registry.get(resolveAccountId(req));
+      const snapshot = await buildDirectorySnapshot({
+        accountId: runtime.accountId,
+        collections,
+        runtime,
+        refresh: req.query.refresh === '1',
+      });
+      const csv = directoryCsv(snapshot, req.query);
+      const date = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="directorio-ibot-${date}.csv"`);
+      res.send(csv);
+    } catch (error) {
+      console.error('[directory] Error exportando el directorio:', error);
+      res.status(500).json({ error: 'No se pudo exportar el directorio de contactos.' });
+    }
+  });
+
+  router.get('/api/bot/directory', async (req, res) => {
+    try {
+      const runtime = await registry.get(resolveAccountId(req));
+      const snapshot = await buildDirectorySnapshot({
+        accountId: runtime.accountId,
+        collections,
+        runtime,
+        refresh: req.query.refresh === '1',
+      });
+      res.json(paginateDirectory(snapshot, req.query));
+    } catch (error) {
+      console.error('[directory] Error cargando el directorio:', error);
+      res.status(500).json({ error: 'No se pudo cargar el directorio de contactos.' });
+    }
+  });
+
+  router.get('/api/bot/scheduled-messages', async (req, res) => {
+    try {
+      const accountId = resolveAccountId(req);
+      res.json(await scheduler.list(accountId, { limit: req.query.limit }));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/api/bot/scheduled-messages', async (req, res) => {
+    try {
+      const accountId = resolveAccountId(req);
+      const config = await getConfig(collections, accountId) || defaultBotConfig(accountId);
+      const scheduled = await scheduler.create({
+        accountId,
+        message: req.body?.message,
+        target: req.body?.target,
+        localDate: req.body?.localDate,
+        localTime: req.body?.localTime,
+        timeZone: config.timezone || 'America/Hermosillo',
+      });
+      res.status(201).json(scheduled);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.delete('/api/bot/scheduled-messages/:id', async (req, res) => {
+    try {
+      const cancelled = await scheduler.cancel(resolveAccountId(req), req.params.id);
+      if (!cancelled) return res.status(404).json({ error: 'Mensaje pendiente no encontrado' });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.get('/api/bot/events/chats', async (req, res) => {
     const accountId = resolveAccountId(req);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',

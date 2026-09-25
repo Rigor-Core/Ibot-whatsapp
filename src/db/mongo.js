@@ -31,6 +31,8 @@ export function getCollections(database = db) {
     users: database.collection('panel_users'),
     whatsappSessions: database.collection('whatsapp_sessions'),
     chatMessages: database.collection('chat_messages'),
+    contacts: database.collection('contacts'),
+    scheduledMessages: database.collection('scheduled_messages'),
   };
 }
 
@@ -67,9 +69,19 @@ export async function ensureIndexes(database = db) {
     safeCreateIndex(c.chatGroups, { accountId: 1, groupId: 1 }, { unique: true }),
     safeCreateIndex(c.chatGroups, { accountId: 1, lastMessageAt: -1 }),
     safeCreateIndex(c.users, { username: 1 }, { unique: true }),
+    safeCreateIndex(c.accounts, { userId: 1, createdAt: 1 }),
+    safeCreateIndex(c.accounts, { userId: 1 }, {
+      name: 'unique_account_per_user',
+      unique: true,
+      partialFilterExpression: { userId: { $type: 'string' } },
+    }),
     safeCreateIndex(c.whatsappSessions, { accountId: 1, key: 1 }, { unique: true }),
     safeCreateIndex(c.chatMessages, { accountId: 1, groupId: 1, ts: -1 }),
+    safeCreateIndex(c.chatMessages, { accountId: 1, senderId: 1, ts: -1 }),
     safeCreateIndex(c.chatMessages, { accountId: 1, id: 1 }, { unique: true }),
+    safeCreateIndex(c.contacts, { accountId: 1, id: 1 }, { unique: true }),
+    safeCreateIndex(c.scheduledMessages, { accountId: 1, status: 1, scheduledFor: 1 }),
+    safeCreateIndex(c.scheduledMessages, { status: 1, nextAttemptAt: 1 }),
   ]);
 }
 

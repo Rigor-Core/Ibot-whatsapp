@@ -10,7 +10,10 @@ export class EventBus {
   }
 
   off(event, listener) {
-    this.listeners.get(event)?.delete(listener);
+    const set = this.listeners.get(event);
+    if (!set) return;
+    set.delete(listener);
+    if (set.size === 0) this.listeners.delete(event);
   }
 
   emit(event, payload) {

@@ -1,7 +1,7 @@
 {
   "name": "ibot-v2-whatsapp",
-  "version": "2.0.0",
-  "description": "Ibot v2 - Bot de WhatsApp multi cuenta con panel, grupos, logs locales, chats y modo IA",
+  "version": "2.1.0",
+  "description": "Ibot v2 - Bot de WhatsApp por usuario con panel, grupos, comandos, contactos y modo IA",
   "type": "module",
   "main": "server.js",
   "packageManager": "pnpm@11.0.0",
@@ -11,10 +11,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "check": "node --check server.js && find src public/js -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test",
     "audit": "pnpm audit --audit-level moderate",
     "install:secure": "pnpm install --frozen-lockfile",
-    "migrate:v1": "node scripts/migrate-v1-to-v2.js"
+    "migrate:v1": "node scripts/migrate-v1-to-v2.js",
+    "create:admin": "node scripts/create-admin.js"
   },
   "keywords": [
     "whatsapp",

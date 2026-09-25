@@ -1,4 +1,6 @@
-import { ZaiClient } from '../../services/zai-client.js';
+import { DeepSeekClient } from '../../services/deepseek-client.js';
+
+const DEFAULT_DEEPSEEK_BASE_URL = 'https://dipisik.rigorcore.com/v1';
 
 function parseCommand(text, iaConfig) {
   const trimmed = String(text || '').trim();
@@ -38,11 +40,17 @@ export async function handleIa(extracted, ctx) {
   if (cooldown > 0 && now - last < cooldown) return false;
   ctx.state.aiCooldowns.set(extracted.groupId, now);
 
-  const apiKey = ia.apiKey && !String(ia.apiKey).includes('*') ? ia.apiKey : (process.env.ZAI_API_KEY || '');
-  const client = new ZaiClient({
+  const apiKey = ia.apiKey && !String(ia.apiKey).includes('*') ? ia.apiKey : (process.env.DEEPSEEK_API_KEY || '');
+  const baseUrl = String(ia.baseUrl || '').includes('api.z.ai')
+    ? DEFAULT_DEEPSEEK_BASE_URL
+    : (ia.baseUrl || DEFAULT_DEEPSEEK_BASE_URL);
+  const model = String(ia.model || '').startsWith('glm-')
+    ? 'deepseek-chat'
+    : (ia.model || 'deepseek-chat');
+  const client = new DeepSeekClient({
     apiKey,
-    baseUrl: ia.baseUrl,
-    model: ia.model,
+    baseUrl,
+    model,
     timeoutMs: ia.timeoutMs,
     logger: ctx.logger,
   });

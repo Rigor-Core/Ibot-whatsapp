@@ -1,16 +1,21 @@
 const IbotApi = (() => {
-  let accountId = localStorage.getItem('ibot_account') || '';
-  const getAccount = () => accountId;
-  const setAccount = (id) => {
-    accountId = id || '';
-    if (accountId) localStorage.setItem('ibot_account', accountId);
-    else localStorage.removeItem('ibot_account');
-  };
+  // Extract a cookie value by name from document.cookie
+  function getCookie(name) {
+    const match = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='));
+    return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+  }
   async function request(url, opts = {}) {
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    // Inject CSRF token for all state-changing requests (Double Submit Cookie pattern)
+    const method = (opts.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+      const csrf = getCookie('ibot_csrf_token');
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+    }
     const res = await fetch(url, {
       credentials: 'same-origin',
       ...opts,
-      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      headers,
     });
     if (res.status === 401) {
       const text = await res.text().catch(() => '');
@@ -21,27 +26,53 @@ const IbotApi = (() => {
       throw new Error('Sesión requerida');
     }
     const text = await res.text();
-    let data = null;
+    let data;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (!res.ok) throw new Error(data?.error || data?.message || res.statusText);
     return data;
   }
-  const api = (path) => {
-    if (!accountId) throw new Error('Primero crea o selecciona una cuenta de WhatsApp.');
-    return `/api/accounts/${encodeURIComponent(accountId)}${path}`;
+  async function requestBlob(url) {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (res.status === 401) {
+      location.href = '/login.html';
+      throw new Error('Sesión requerida');
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      let message = res.statusText;
+      try {
+        const data = text ? JSON.parse(text) : null;
+        message = data?.error || data?.message || message;
+      } catch {
+        if (text) message = text;
+      }
+      throw new Error(message || 'No se pudo descargar el archivo.');
+    }
+    return res.blob();
+  }
+  const api = (path = '') => `/api/bot${path}`;
+  const adminApi = (path = '') => `/api/admin${path}`;
+  const queryString = (params = {}) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+    }
+    const serialized = query.toString();
+    return serialized ? `?${serialized}` : '';
   };
   return {
-    getAccount, setAccount, request, api,
+    request, api, adminApi,
     authStatus: () => request('/api/auth/status'),
     logoutPanel: () => request('/api/auth/logout', { method: 'POST' }),
-    accounts: () => request('/api/accounts'),
-    createAccount: (body) => request('/api/accounts', { method: 'POST', body: JSON.stringify(body) }),
+    bot: () => request('/api/bot'),
     status: () => request(api('/status')),
     start: () => request(api('/start'), { method: 'POST' }),
     stop: () => request(api('/stop'), { method: 'POST' }),
     logout: () => request(api('/logout'), { method: 'POST' }),
     config: () => request(api('/config')),
     saveConfig: (body) => request(api('/config'), { method: 'PUT', body: JSON.stringify(body) }),
+    testConnNotification: (body) => request(api('/config/conn-notification/test'), { method: 'POST', body: JSON.stringify(body) }),
+    saveOrder: (body) => request(api('/config/order'), { method: 'PUT', body: JSON.stringify(body) }),
     toggleRespuestas: () => request(api('/respuestas/toggle'), { method: 'POST' }),
     groups: () => request(api('/grupos')),
     categories: () => request(api('/grupos/categories')),
@@ -49,16 +80,28 @@ const IbotApi = (() => {
     updateGroup: (id, body) => request(api(`/grupos/${encodeURIComponent(id)}`), { method: 'PUT', body: JSON.stringify(body) }),
     deleteGroup: (id) => request(api(`/grupos/${encodeURIComponent(id)}`), { method: 'DELETE' }),
     resetGroup: (id) => request(api(`/grupos/${encodeURIComponent(id)}/reset-contador`), { method: 'POST' }),
+    toggleGroupCommands: (id) => request(api(`/grupos/${encodeURIComponent(id)}/commands/toggle`), { method: 'PUT' }),
     toggleIndependent: () => request(api('/grupos/toggle_independent'), { method: 'POST' }),
     logs: (params = '') => request(api(`/logs/console${params}`)),
     clearLogs: () => request(api('/logs/console'), { method: 'DELETE' }),
     chatGroups: (q = '') => request(api(`/chats/groups${q ? `?q=${encodeURIComponent(q)}` : ''}`)),
     chatMessages: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/messages?limit=300`)),
     chatInfo: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/info`)),
+    directory: (params = {}, opts = {}) => request(api(`/directory${queryString(params)}`), opts),
+    directoryExport: (params = {}) => requestBlob(api(`/directory/export.csv${queryString(params)}`)),
+    scheduledMessages: (limit = 30) => request(api(`/scheduled-messages?limit=${encodeURIComponent(limit)}`)),
+    scheduleMessage: (body) => request(api('/scheduled-messages'), { method: 'POST', body: JSON.stringify(body) }),
+    cancelScheduledMessage: (id) => request(api(`/scheduled-messages/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+    adminOverview: () => request(adminApi('/overview')),
+    createAccount: (body) => request(adminApi('/users'), { method: 'POST', body: JSON.stringify(body) }),
+    deleteAccount: (username) => request(adminApi(`/users/${encodeURIComponent(username)}`), { method: 'DELETE' }),
+    resetAccountPassword: (username, password) => request(adminApi(`/users/${encodeURIComponent(username)}/password`), { method: 'PUT', body: JSON.stringify({ password }) }),
+    controlAccount: (accountId, action) => request(adminApi(`/accounts/${encodeURIComponent(accountId)}/${action}`), { method: 'POST' }),
   };
 })();
 function $(s, root = document) { return root.querySelector(s); }
-function $all(s, root = document) { return Array.from(root.querySelectorAll(s)); }
+// Función global compartida por las páginas cargadas después de api.js.
+// eslint-disable-next-line no-unused-vars
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function create(tag, props = {}) {
   const el = document.createElement(tag);
@@ -71,29 +114,19 @@ function create(tag, props = {}) {
   }
   return el;
 }
+// Función global compartida por las páginas cargadas después de api.js.
+// eslint-disable-next-line no-unused-vars
 function toast(msg) {
   const t = $('#toast') || document.body.appendChild(create('div', { id: 'toast', className: 'toast' }));
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2800);
 }
-async function fillAccounts(selectId = 'accountSelect') {
-  const rows = await IbotApi.accounts().catch(() => []);
-  if (!rows.length) {
-    IbotApi.setAccount('');
-    return rows;
-  }
-  // Enforce main bot account globally
-  IbotApi.setAccount(rows[0].accountId);
-
-  const sel = document.getElementById(selectId);
-  if (sel) {
-    sel.innerHTML = rows.map((a) => `<option value="${escapeHtml(a.accountId)}">${escapeHtml(a.label || a.accountId)}</option>`).join('');
-    sel.value = IbotApi.getAccount();
-    sel.onchange = () => { IbotApi.setAccount(sel.value); location.reload(); };
-  }
-  return rows;
+// eslint-disable-next-line no-unused-vars
+async function loadUserBot() {
+  return IbotApi.bot();
 }
+// eslint-disable-next-line no-unused-vars
 function bindPanelLogout() {
   const btn = document.getElementById('panelLogoutBtn');
   if (!btn) return;
@@ -101,4 +134,19 @@ function bindPanelLogout() {
     await IbotApi.logoutPanel().catch(() => null);
     location.href = '/login.html';
   });
+  bindPanelAdminLink();
+}
+
+// eslint-disable-next-line no-unused-vars
+async function bindPanelAdminLink() {
+  const navigation = document.querySelector('.top-links');
+  if (!navigation || navigation.querySelector('[data-admin-link]')) return;
+  const status = await IbotApi.authStatus().catch(() => null);
+  if (status?.user?.role !== 'owner') return;
+  const link = document.createElement('a');
+  link.href = '/admin.html';
+  link.title = 'Administración';
+  link.textContent = '🛡️';
+  link.dataset.adminLink = 'true';
+  navigation.insertBefore(link, document.getElementById('panelLogoutBtn'));
 }

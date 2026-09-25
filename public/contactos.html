@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ibot — Contactos</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    :root { --container-max: 1080px; }
+    .directory-head {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      margin-bottom:14px;
+    }
+    .directory-title { font-size:21px; font-weight:900; color:#fff; }
+    .directory-subtitle { margin-top:3px; color:var(--muted); font-size:12px; }
+    .refresh-directory { min-width:42px; font-size:18px; }
+    .refresh-directory.is-loading { animation:contact-spin .8s linear infinite; }
+    @keyframes contact-spin { to { transform:rotate(360deg); } }
+    .kpi-row {
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:10px;
+      margin-bottom:14px;
+    }
+    .kpi-card {
+      position:relative;
+      overflow:hidden;
+      min-width:0;
+      padding:13px 15px;
+      border:1px solid var(--border-soft);
+      border-radius:11px;
+      background:var(--panel);
+      box-shadow:0 5px 20px rgba(0,0,0,.22);
+    }
+    .kpi-card::before {
+      position:absolute;
+      inset:0 auto 0 0;
+      width:3px;
+      background:var(--accent);
+      content:'';
+    }
+    .kpi-card.green::before { background:var(--success); }
+    .kpi-card.purple::before { background:#b862ff; }
+    .kpi-card.amber::before { background:#ffb400; }
+    .kpi-title {
+      display:block;
+      overflow:hidden;
+      color:var(--muted);
+      font-size:10px;
+      font-weight:800;
+      letter-spacing:.35px;
+      text-overflow:ellipsis;
+      text-transform:uppercase;
+      white-space:nowrap;
+    }
+    .kpi-value { display:block; margin-top:3px; color:#fff; font-size:22px; font-weight:900; }
+    .directory-list { display:flex; flex-direction:column; gap:9px; }
+    .contact-group {
+      overflow:hidden;
+      border:1px solid var(--border-soft);
+      border-radius:11px;
+      background:var(--panel);
+      box-shadow:0 4px 18px rgba(0,0,0,.2);
+    }
+    .contact-group[open] { border-color:rgba(0,229,255,.3); }
+    .contact-group.external[open] { border-color:rgba(255,180,0,.34); }
+    .group-summary {
+      display:grid;
+      grid-template-columns:34px minmax(0,1fr) auto auto;
+      align-items:center;
+      gap:10px;
+      min-height:54px;
+      padding:8px 11px;
+      cursor:pointer;
+      list-style:none;
+      user-select:none;
+    }
+    .group-summary::-webkit-details-marker { display:none; }
+    .group-chevron {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      width:28px;
+      height:28px;
+      border:1px solid rgba(0,229,255,.18);
+      border-radius:7px;
+      background:rgba(0,229,255,.06);
+      color:var(--accent);
+      font-size:13px;
+      transition:transform .18s ease;
+    }
+    .contact-group[open] .group-chevron { transform:rotate(90deg); }
+    .group-name { overflow:hidden; color:#fff; font-size:13px; font-weight:850; text-overflow:ellipsis; white-space:nowrap; }
+    .group-id { overflow:hidden; margin-top:2px; color:var(--muted); font-family:'JetBrains Mono',monospace; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+    .group-count {
+      padding:4px 8px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:20px;
+      background:rgba(255,255,255,.035);
+      color:var(--muted);
+      font-size:10px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .schedule-group {
+      width:31px;
+      height:31px;
+      padding:0;
+      border-color:rgba(184,98,255,.3);
+      background:rgba(184,98,255,.08);
+      color:#d39aff;
+      font-size:14px;
+    }
+    .group-content { border-top:1px solid rgba(255,255,255,.055); }
+    .contacts-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    .contacts-table th {
+      padding:8px 12px;
+      background:rgba(0,0,0,.16);
+      color:var(--muted);
+      font-size:10px;
+      font-weight:800;
+      letter-spacing:.35px;
+      text-align:left;
+      text-transform:uppercase;
+    }
+    .contacts-table th:last-child { text-align:right; }
+    .contacts-table td {
+      padding:8px 12px;
+      border-top:1px solid rgba(255,255,255,.045);
+      color:#e6e9f2;
+      font-size:12px;
+      vertical-align:middle;
+    }
+    .contact-primary { overflow:hidden; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+    .contact-secondary { overflow:hidden; margin-top:2px; color:var(--muted); font-family:'JetBrains Mono',monospace; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+    .contact-actions { display:flex; justify-content:flex-end; gap:5px; }
+    .contact-action {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:30px;
+      height:28px;
+      padding:0 7px;
+      border:1px solid rgba(255,255,255,.1);
+      border-radius:6px;
+      background:rgba(255,255,255,.04);
+      color:#f5f7fb;
+      cursor:pointer;
+      font-size:11px;
+      text-decoration:none;
+    }
+    .contact-action:hover { border-color:var(--accent); color:var(--accent); }
+    .contact-action.chat { border-color:rgba(57,255,106,.25); color:#57f77c; }
+    .contact-action.schedule { border-color:rgba(184,98,255,.3); color:#d39aff; }
+    .contact-action:disabled { cursor:not-allowed; opacity:.35; }
+    .section-state { padding:24px 14px; color:var(--muted); font-size:12px; text-align:center; }
+    .load-more-row { padding:9px; border-top:1px solid rgba(255,255,255,.05); text-align:center; }
+    .load-more-row .btn { padding:6px 12px; font-size:11px; }
+    .schedule-modal {
+      position:fixed;
+      z-index:1200;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      background:rgba(0,0,0,.72);
+      backdrop-filter:blur(5px);
+    }
+    .schedule-modal.show { display:flex; }
+    .schedule-card {
+      width:min(100%,470px);
+      padding:18px;
+      border:1px solid rgba(184,98,255,.35);
+      border-radius:14px;
+      background:#0d121d;
+      box-shadow:0 22px 70px rgba(0,0,0,.55);
+    }
+    .schedule-title { color:#d39aff; font-size:17px; font-weight:900; }
+    .schedule-target { margin-top:4px; color:var(--muted); font-size:11px; }
+    .schedule-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; margin:15px 0 11px; }
+    .schedule-field label { display:block; margin-bottom:5px; color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; }
+    .schedule-field textarea { min-height:100px; resize:vertical; }
+    .schedule-zone { margin-top:7px; color:var(--muted); font-size:10px; }
+    .schedule-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+    .clipboard-field { position:fixed; top:-1000px; opacity:0; }
+    @media (max-width:760px) {
+      .kpi-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .container { width:100%; }
+      .contacts-table thead { display:none; }
+      .contacts-table, .contacts-table tbody, .contacts-table tr, .contacts-table td { display:block; width:100%; }
+      .contacts-table tr { display:grid; grid-template-columns:minmax(0,1fr) auto; padding:9px 10px; border-top:1px solid rgba(255,255,255,.05); }
+      .contacts-table td { padding:2px 0; border:0; }
+      .contacts-table td:nth-child(2) { grid-column:1; }
+      .contacts-table td:nth-child(3) { grid-column:2; grid-row:1 / span 2; align-self:center; }
+      .contact-actions { margin-left:8px; }
+    }
+    @media (max-width:480px) {
+      main { padding-top:12px; }
+      .directory-head { margin-bottom:10px; }
+      .directory-title { font-size:18px; }
+      .kpi-row { gap:7px; margin-bottom:10px; }
+      .kpi-card { padding:10px 11px; }
+      .kpi-value { font-size:18px; }
+      .group-summary { grid-template-columns:30px minmax(0,1fr) auto auto; gap:7px; min-height:50px; padding:7px 8px; }
+      .group-count { padding:3px 6px; font-size:9px; }
+      .schedule-grid { grid-template-columns:1fr; }
+      .schedule-actions .btn { flex:1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav">
+    <div class="top-inner">
+      <div class="brand">
+        <div class="logo">IB</div>
+        <div>
+          <div style="font-weight:800;font-size:15px;line-height:1.1;">Ibot</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.1;">Panel de Control</div>
+        </div>
+      </div>
+      <nav class="top-links">
+        <a href="/" title="Inicio">🏠</a>
+        <a href="/grupos.html" title="Grupos">👥</a>
+        <a href="/contactos.html" class="active" title="Contactos">📇</a>
+        <a href="/comandos.html" title="Comandos">⌘</a>
+        <a href="/configuracion.html" title="Configuración">⚙️</a>
+        <a href="/logs.html" title="Logs">📜</a>
+        <button id="panelLogoutBtn" class="linklike" type="button" title="Salir" style="filter:drop-shadow(0 0 2px rgba(255,23,68,.85));">🚪</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <div class="directory-head">
+        <div>
+          <div class="directory-title">Contactos</div>
+          <div class="directory-subtitle">Abre un grupo para ver sus integrantes y acciones.</div>
+        </div>
+        <button id="btnRefresh" class="btn util refresh-directory" type="button" title="Actualizar desde WhatsApp">↻</button>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi-card"><span class="kpi-title">En Grupos Registrados</span><span id="kpiGroupMembers" class="kpi-value">—</span></div>
+        <div class="kpi-card green"><span class="kpi-title">Externos / Modo Watch</span><span id="kpiExternal" class="kpi-value">—</span></div>
+        <div class="kpi-card purple"><span class="kpi-title">Grupos Monitoreados</span><span id="kpiGroupsCount" class="kpi-value">—</span></div>
+        <div class="kpi-card amber"><span class="kpi-title">Nombres Identificados</span><span id="kpiNamesCount" class="kpi-value">—</span></div>
+      </div>
+
+      <div id="directoryGroups" class="directory-list" aria-live="polite">
+        <div class="section-state">Cargando grupos y contactos...</div>
+      </div>
+    </div>
+  </main>
+
+  <div id="scheduleModal" class="schedule-modal" aria-hidden="true">
+    <div class="schedule-card" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">
+      <div id="scheduleTitle" class="schedule-title">Programar mensaje</div>
+      <div id="scheduleTarget" class="schedule-target"></div>
+      <form id="scheduleForm">
+        <div class="schedule-grid">
+          <div class="schedule-field">
+            <label for="scheduleDate">Día</label>
+            <input id="scheduleDate" type="date" required>
+          </div>
+          <div class="schedule-field">
+            <label for="scheduleTime">Hora y minutos</label>
+            <input id="scheduleTime" type="time" step="60" required>
+          </div>
+        </div>
+        <div class="schedule-field">
+          <label for="scheduleMessage">Mensaje</label>
+          <textarea id="scheduleMessage" maxlength="4000" placeholder="Escribe el mensaje que enviará el bot..." required></textarea>
+        </div>
+        <div class="schedule-zone">Zona horaria: <strong id="scheduleTimezone">America/Hermosillo</strong></div>
+        <div class="schedule-actions">
+          <button id="cancelSchedule" class="btn danger" type="button">Cancelar</button>
+          <button id="saveSchedule" class="btn" type="submit">Programar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/contactos.js"></script>
+</body>
+</html>

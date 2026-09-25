@@ -113,6 +113,46 @@ _modalContainer.innerHTML = `<div id="modal" style="display: none;">
           </div>
         </div>
 
+        <!-- Sección 5: Comandos, bienvenida y despedida -->
+        <div class="group-command-section"
+          style="border: 1px solid rgba(184, 98, 255, 0.25); background: rgba(184, 98, 255, 0.025); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+          <div
+            style="font-weight: 800; font-size: 12px; text-transform: uppercase; color: #c889ff; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px;">
+            <span>⌘</span> Comandos y eventos del grupo
+          </div>
+          <label class="small" style="font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <input id="field-commands-enabled" type="checkbox" style="width: 18px; height: 18px; margin: 0;">
+            Activar comandos, bienvenida y despedida
+          </label>
+          <div id="group-command-fields">
+            <div style="display: grid; grid-template-columns: minmax(110px, .35fr) 1fr; gap: 12px; margin-bottom: 12px;">
+              <div>
+                <label class="small" style="font-weight: 700;">Prefijo</label>
+                <input id="field-command-prefix" type="text" maxlength="4" value="!" placeholder="!"
+                  style="background: rgba(0,0,0,0.2);">
+              </div>
+              <div class="small" style="display:flex; align-items:flex-end; padding-bottom:10px;">
+                Ejemplo: <strong style="margin-left:5px; color:#c889ff;">!help</strong>
+              </div>
+            </div>
+            <div class="group-event-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div>
+                <label class="small" style="font-weight:700;">Mensaje de bienvenida</label>
+                <textarea id="field-welcome-message" rows="3"
+                  placeholder="¡Bienvenido/a {user} a {group}!"
+                  style="background:rgba(0,0,0,.2); resize:vertical;"></textarea>
+              </div>
+              <div>
+                <label class="small" style="font-weight:700;">Mensaje de despedida</label>
+                <textarea id="field-farewell-message" rows="3"
+                  placeholder="{user} ha salido de {group}."
+                  style="background:rgba(0,0,0,.2); resize:vertical;"></textarea>
+              </div>
+            </div>
+            <div class="small" style="margin-top:8px;">Variables disponibles: <strong>{user}</strong> y <strong>{group}</strong>. La despedida no se envía cuando se usa el comando ban.</div>
+          </div>
+        </div>
+
         <div class="modal-actions"
           style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 0;">
           <button type="button" id="btn-cancel" class="btn danger"

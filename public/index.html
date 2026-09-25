@@ -100,6 +100,13 @@
       text-shadow: 0 0 8px rgba(255, 23, 68, 0.6);
       box-shadow: 0 0 15px rgba(255, 23, 68, 0.15), inset 0 0 10px rgba(255, 23, 68, 0.05);
     }
+    .neon-state-box.reconnecting {
+      background: rgba(255, 152, 0, 0.04);
+      border-color: #ff9800;
+      color: #ff9800;
+      text-shadow: 0 0 8px rgba(255, 152, 0, 0.6);
+      box-shadow: 0 0 15px rgba(255, 152, 0, 0.15), inset 0 0 10px rgba(255, 152, 0, 0.05);
+    }
     .state-label {
       color: #9ca3af;
       font-weight: 600;
@@ -203,6 +210,19 @@
       color: #fff;
       box-shadow: 0 0 20px rgba(255, 23, 68, 0.45);
       transform: translateY(-2px);
+    }
+    .neon-btn-power.btn-stopped {
+      background: #272c35;
+      border: 2px solid #555c68;
+      color: #b0b5c0;
+      box-shadow: none;
+    }
+    .neon-btn-power.btn-stopped:hover {
+      background: #3a414e;
+      border-color: #707988;
+      color: #fff;
+      transform: translateY(-2px);
+      box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
     }
 
     .neon-btn-answers {
@@ -329,6 +349,8 @@
       <nav class="top-links">
         <a href="/" class="active" title="Inicio">🏠</a>
         <a href="/grupos.html" title="Grupos">👥</a>
+        <a href="/contactos.html" title="Directorio / Contactos">📇</a>
+        <a href="/comandos.html" title="Comandos">⌘</a>
         <a href="/configuracion.html" title="Configuración">⚙️</a>
         <a href="/logs.html" title="Logs">📜</a>
         <button id="panelLogoutBtn" class="linklike" type="button" title="Salir" style="filter: drop-shadow(0 0 2px rgba(255,23,68,0.85));">🚪</button>

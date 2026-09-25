@@ -127,6 +127,252 @@
       background-color: #111322 !important;
       color: #fff;
     }
+
+    /* ── Orden de grupos ── */
+    .order-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 14px;
+      min-height: 40px;
+    }
+
+    .order-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      cursor: grab;
+      transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+      user-select: none;
+    }
+
+    .order-item:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(0, 229, 255, 0.3);
+    }
+
+    .order-item.dragging {
+      opacity: 0.45;
+      cursor: grabbing;
+    }
+
+    .order-item.drag-over {
+      border-color: var(--accent);
+      background: rgba(0, 229, 255, 0.06);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
+    }
+
+    .order-num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: rgba(0, 229, 255, 0.12);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 900;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .order-label {
+      flex: 1;
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .order-cat {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      background: rgba(255,255,255,0.04);
+      border-radius: 5px;
+      padding: 2px 7px;
+      flex-shrink: 0;
+    }
+
+    .order-handle {
+      color: var(--muted);
+      font-size: 14px;
+      flex-shrink: 0;
+      opacity: 0.5;
+    }
+
+    .order-arrows {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .btn-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 18px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 9px;
+      color: var(--muted);
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+
+    .btn-arrow:hover {
+      background: rgba(0, 229, 255, 0.12);
+      border-color: rgba(0, 229, 255, 0.35);
+      color: var(--accent);
+    }
+
+    .order-empty {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 20px;
+    }
+
+    /* ── Bloques de categoría ── */
+    .order-cat-block {
+      border: 1px solid rgba(255, 180, 0, 0.2);
+      border-radius: 12px;
+      overflow: hidden;
+      background: rgba(255, 180, 0, 0.02);
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .order-cat-block.drag-over-cat {
+      border-color: #ffb400;
+      box-shadow: 0 0 12px rgba(255, 180, 0, 0.2);
+    }
+
+    .order-cat-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: rgba(255, 180, 0, 0.05);
+      border-bottom: 1px solid rgba(255, 180, 0, 0.12);
+      cursor: grab;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+
+    .order-cat-header:hover {
+      background: rgba(255, 180, 0, 0.09);
+    }
+
+    .order-cat-header.dragging {
+      opacity: 0.4;
+      cursor: grabbing;
+    }
+
+    .order-cat-num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      background: rgba(255, 180, 0, 0.18);
+      border: 1px solid rgba(255, 180, 0, 0.45);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 900;
+      color: #ffb400;
+      flex-shrink: 0;
+    }
+
+    .order-cat-name {
+      flex: 1;
+      font-weight: 800;
+      font-size: 13px;
+      color: #ffb400;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .order-cat-count {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255, 180, 0, 0.6);
+      background: rgba(255,180,0,0.08);
+      border-radius: 20px;
+      padding: 2px 8px;
+      flex-shrink: 0;
+    }
+
+    .order-cat-handle {
+      color: rgba(255, 180, 0, 0.45);
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .order-cat-arrows {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .btn-arrow-cat {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 18px;
+      background: rgba(255,180,0,0.06);
+      border: 1px solid rgba(255,180,0,0.18);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 9px;
+      color: rgba(255,180,0,0.6);
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+
+    .btn-arrow-cat:hover {
+      background: rgba(255, 180, 0, 0.16);
+      border-color: rgba(255, 180, 0, 0.5);
+      color: #ffb400;
+    }
+
+    .order-cat-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 8px 10px;
+    }
+
+    .order-cat-groups .order-item {
+      border-radius: 8px;
+      padding: 7px 10px;
+    }
+
+    .order-cat-groups-empty {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      padding: 10px 0 6px;
+      font-style: italic;
+    }
+
+    .reset-order-btn:hover {
+      color: #fff !important;
+      border-color: rgba(255,255,255,.25) !important;
+      background: rgba(255,255,255,.09) !important;
+    }
   </style>
 </head>
 <body>
@@ -142,6 +388,8 @@
       <nav class="top-links">
         <a href="/" title="Inicio">🏠</a>
         <a href="/grupos.html" title="Grupos">👥</a>
+        <a href="/contactos.html" title="Directorio / Contactos">📇</a>
+        <a href="/comandos.html" title="Comandos">⌘</a>
         <a href="/configuracion.html" class="active" title="Configuración">⚙️</a>
         <a href="/logs.html" title="Logs">📜</a>
         <button id="panelLogoutBtn" class="linklike" type="button" title="Salir" style="filter: drop-shadow(0 0 2px rgba(255,23,68,0.85));">🚪</button>
@@ -151,11 +399,6 @@
 
   <main>
     <div class="container">
-      <div id="noAccounts" class="panel" style="display:none; border: 1px solid rgba(255, 23, 68, 0.3); background: rgba(255, 23, 68, 0.02);">
-        <div class="title" style="color: var(--danger);">No hay cuentas configuradas</div>
-        <div class="small" style="margin-top: 5px;">Por favor, crea una cuenta de WhatsApp en la pantalla principal antes de ajustar la configuración.</div>
-      </div>
-
       <div id="configContent" class="config-grid">
         
         <!-- CARD 1: MODO DEL BOT -->
@@ -181,7 +424,7 @@
               <div style="font-size: 13px; color: var(--muted); line-height: 1.4; background: rgba(255,255,255,0.01); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
                 • <strong>Normal</strong>: Responde a grupos según reglas estándar.<br>
                 • <strong>Watch</strong>: Solo monitorea y guarda logs de mensajes.<br>
-                • <strong>IA</strong>: Utiliza Z.AI para responder de forma inteligente.
+                • <strong>IA</strong>: Utiliza DeepSeek para responder de forma inteligente.
               </div>
             </div>
           </div>
@@ -224,7 +467,7 @@
         <section class="panel full" style="border: 1px solid rgba(57, 255, 106, 0.2); background: rgba(57, 255, 106, 0.015); margin-top: 8px;">
           <div class="header-row" style="border-bottom-color: rgba(57, 255, 106, 0.1); padding-bottom: 12px; margin-bottom: 16px;">
             <div>
-              <div class="title title-ia">Configuración de Inteligencia Artificial (Z.AI)</div>
+              <div class="title title-ia">Configuración de Inteligencia Artificial (DeepSeek)</div>
               <div class="small">Controla la integración del modelo de lenguaje IA, personalidad del bot, cooldowns e instrucciones del sistema.</div>
             </div>
           </div>
@@ -245,12 +488,12 @@
             
             <label class="field span-4">
               Modelo LLM
-              <input id="iaModel" placeholder="glm-5.1">
+              <input id="iaModel" placeholder="deepseek-chat">
             </label>
             
             <label class="field span-4">
               Base URL de API
-              <input id="iaBaseUrl" placeholder="https://api.z.ai/api/paas/v4">
+              <input id="iaBaseUrl" placeholder="https://dipisik.rigorcore.com/v1">
             </label>
             
             <label class="field span-12">
@@ -367,9 +610,63 @@
             </label>
           </div>
 
-          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 24px; display: flex; justify-content: flex-end;">
+          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <button id="testConnNotify" class="btn util" type="button" style="padding: 10px 24px; font-weight: 800; border-radius: 10px;">
+              Envío de prueba
+            </button>
             <button id="saveConnNotify" class="btn" type="button" style="padding: 10px 32px; font-weight: 800; border-radius: 10px; background: linear-gradient(135deg, var(--accent) 0%, #0088ff 100%); color: #000; box-shadow: 0 0 15px var(--accent-glow); border: none;">
               Guardar Notificación
+            </button>
+          </div>
+        </section>
+
+        <!-- CARD 5: ORDEN DE GRUPOS -->
+        <section class="panel full" style="border: 1px solid rgba(184, 98, 255, 0.2); background: rgba(184, 98, 255, 0.015); margin-top: 8px;">
+          <div class="header-row" style="border-bottom-color: rgba(184, 98, 255, 0.1); padding-bottom: 12px; margin-bottom: 16px;">
+            <div>
+              <div class="title" style="color: #c889ff; text-shadow: 0 0 8px rgba(184,98,255,0.25);">Zona horaria del bot</div>
+              <div class="small">Se usa para ejecutar los mensajes programados en la fecha y hora indicadas.</div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="span-6">
+              <label class="field-label" for="timezone">Zona horaria</label>
+              <select id="timezone">
+                <option value="America/Hermosillo">America/Hermosillo (predeterminada)</option>
+                <option value="America/Mexico_City">America/Mexico_City</option>
+                <option value="America/Tijuana">America/Tijuana</option>
+                <option value="America/New_York">America/New_York</option>
+                <option value="America/Caracas">America/Caracas</option>
+                <option value="America/Bogota">America/Bogota</option>
+                <option value="America/Lima">America/Lima</option>
+                <option value="America/Santiago">America/Santiago</option>
+                <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
+                <option value="Europe/Madrid">Europe/Madrid</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <!-- CARD 6: ORDEN DE GRUPOS -->
+        <section class="panel full" style="border: 1px solid rgba(255, 180, 0, 0.2); background: rgba(255, 180, 0, 0.015); margin-top: 8px;">
+          <div class="header-row" style="border-bottom-color: rgba(255, 180, 0, 0.1); padding-bottom: 12px; margin-bottom: 16px;">
+            <div>
+              <div class="title" style="color: #ffb400; text-shadow: 0 0 8px rgba(255,180,0,0.2);">Orden de grupos</div>
+              <div class="small">Arrastra los grupos o usa las flechas para ajustar el orden en que aparecen en la tabla de grupos.</div>
+            </div>
+          </div>
+
+          <div id="orderList" class="order-list">
+            <div class="order-empty">Cargando grupos...</div>
+          </div>
+
+          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <button id="resetOrder" class="reset-order-btn" type="button" style="padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: var(--muted); cursor: pointer; transition: all 0.2s ease;">
+              Restablecer orden
+            </button>
+            <button id="saveOrder" class="btn" type="button" style="padding: 10px 32px; font-weight: 800; border-radius: 10px; background: linear-gradient(135deg, #ffb400 0%, #ff8800 100%); color: #000; box-shadow: 0 0 15px rgba(255,180,0,0.3); border: none;">
+              Guardar Orden
             </button>
           </div>
         </section>

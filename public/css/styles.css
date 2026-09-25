@@ -219,18 +219,64 @@ input:focus, select:focus, textarea:focus {
   background: rgba(10, 11, 18, 0.95);
 }
 
-label.field {
+.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.field-label, label.field {
   color: #9ca3af;
   font-size: 13px;
   font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 select option {
   background: var(--panel-solid);
   color: #fff;
+}
+
+/* ─── Contenedor de Contraseña y Botón Ver ───────────── */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-wrapper input {
+  padding-right: 44px;
+}
+
+.toggle-password-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: var(--transition);
+  outline: none;
+  z-index: 10;
+}
+
+.toggle-password-btn svg {
+  pointer-events: none;
+}
+
+.toggle-password-btn:hover, .toggle-password-btn:focus {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* ─── Botones ────────────────────────────────────────── */
@@ -664,11 +710,51 @@ body.auth-page {
 
 .modal-card {
   width: min(500px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   background: #111322;
   border: 1px solid var(--border-soft);
   border-radius: 20px;
   padding: 1.5rem;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+}
+
+#group-command-fields {
+  transition: opacity .18s ease;
+}
+
+#group-command-fields.is-disabled {
+  opacity: .42;
+}
+
+.btn-icon.command-state {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.btn-icon.command-state.commands-on {
+  border-color: rgba(57, 255, 106, .55);
+  background: rgba(57, 255, 106, .13);
+  color: #39ff6a;
+  box-shadow: 0 0 10px rgba(57, 255, 106, .17);
+}
+
+.btn-icon.command-state.commands-standby {
+  border-color: rgba(255, 180, 0, .5);
+  background: rgba(255, 180, 0, .1);
+  color: #ffb400;
+}
+
+.btn-icon.command-state.commands-off {
+  border-color: rgba(164, 169, 196, .2);
+  color: #777f92;
+}
+
+@media (max-width: 620px) {
+  .group-event-grid {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* Toast */

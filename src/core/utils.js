@@ -27,8 +27,12 @@ export function safeJsonParse(text, fallback) {
 
 export function publicSafeAccount(account) {
   if (!account) return null;
-  const { _id, ...rest } = account;
-  return rest;
+  const clone = structuredClone(account);
+  delete clone._id;
+  delete clone.userId;
+  delete clone.sessionPath;
+  delete clone.accountId;
+  return clone;
 }
 
 export function publicSafeConfig(config) {

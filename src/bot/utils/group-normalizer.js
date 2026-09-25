@@ -1,4 +1,5 @@
 import { asBool, asNullableNumber, asNumber } from '../../core/utils.js';
+import { normalizeGroupCommandSettings } from '../../services/admin-command-service.js';
 import { normalizeReply } from './message-extractor.js';
 
 export function normalizeGroupDoc(g = {}) {
@@ -14,6 +15,7 @@ export function normalizeGroupDoc(g = {}) {
     independiente: asBool(g.independiente, false),
     limite: asNullableNumber(g.limite),
     contador: asNumber(g.contador, 0),
+    commandSettings: normalizeGroupCommandSettings(g.commandSettings),
     metadata: g.metadata || {},
     createdAt: g.createdAt || new Date(),
     updatedAt: g.updatedAt || new Date(),

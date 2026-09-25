@@ -1,5 +1,3 @@
-import { safeJsonParse } from './utils.js';
-
 export class ChatStore {
   constructor({ accountId, collections, eventBus }) {
     this.accountId = accountId;
@@ -15,28 +13,38 @@ export class ChatStore {
       const docs = await this.collections.chatGroups.find({ accountId: this.accountId }).toArray();
       this.groups = new Map(docs.map((g) => [g.groupId, g]));
       this.initialized = true;
-    } catch (err) {
+    } catch {
       // Ignorar errores o reintentar en próxima llamada
     }
   }
 
   upsertGroup(groupId, data = {}) {
     const existing = this.groups.get(groupId) || { groupId, accountId: this.accountId };
+    const createdAtVal = existing.createdAt || data.createdAt || Date.now();
+    // eslint-disable-next-line no-unused-vars
+    const { _id, createdAt: _exCreated, ...existingClean } = existing;
+    // eslint-disable-next-line no-unused-vars
+    const { _id: _dataId, createdAt: _dataCreated, ...dataClean } = data;
     const merged = {
-      ...existing,
-      ...data,
+      ...existingClean,
+      ...dataClean,
       groupId,
       accountId: this.accountId,
+      createdAt: createdAtVal,
       updatedAt: Date.now(),
     };
     this.groups.set(groupId, merged);
 
-    // Persist to MongoDB in background
+    // Persist to MongoDB in background — exclude _id and createdAt from $set so they never conflict with immutable fields or $setOnInsert
+    // eslint-disable-next-line no-unused-vars
+    const { _id: _ignoreId, createdAt: _ignoreCreated, ...setPayload } = merged;
     this.collections.chatGroups.updateOne(
       { accountId: this.accountId, groupId },
-      { $set: merged, $setOnInsert: { createdAt: Date.now() } },
+      { $set: setPayload, $setOnInsert: { createdAt: merged.createdAt } },
       { upsert: true }
-    ).catch(() => null);
+    ).catch((err) => {
+      console.error(`[ChatStore] Error en upsertGroup para ${groupId}:`, err.message);
+    });
 
     this.eventBus?.emit(`chat-groups:${this.accountId}`, merged);
     return merged;
@@ -92,14 +100,32 @@ export class ChatStore {
     return this.recordMessage({ groupId, groupName, senderId: 'bot', senderName: 'Bot', fromMe: true, text });
   }
 
-  async listGroups({ q } = {}) {
-    await this.init();
-    const query = String(q || '').toLowerCase();
-    const rows = Array.from(this.groups.values()).filter((g) => {
-      if (!query) return true;
-      return [g.subject, g.groupId, g.description].some((v) => String(v || '').toLowerCase().includes(query));
-    });
-    rows.sort((a, b) => Number(b.lastMessageAt || 0) - Number(a.lastMessageAt || 0));
+  async listGroups({ q, limit = 500 } = {}) {
+    const query = String(q || '').trim();
+    const filter = { accountId: this.accountId };
+
+    if (query) {
+      // Escape regex special characters for safe literal search
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { subject: { $regex: escaped, $options: 'i' } },
+        { groupId: { $regex: escaped, $options: 'i' } },
+        { description: { $regex: escaped, $options: 'i' } },
+      ];
+    }
+
+    const maxResults = Math.min(Math.max(Number(limit) || 500, 1), 1000);
+    const rows = await this.collections.chatGroups
+      .find(filter)
+      .sort({ lastMessageAt: -1 })
+      .limit(maxResults)
+      .toArray();
+
+    // Refresh in-memory cache with the fetched results
+    for (const row of rows) {
+      this.groups.set(row.groupId, row);
+    }
+
     return rows;
   }
 

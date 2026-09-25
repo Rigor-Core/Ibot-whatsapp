@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ibot — Comandos</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    :root { --container-max: 980px; }
+    .commands-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 18px;
+      padding: 18px 20px;
+      border: 1px solid rgba(184, 98, 255, .28);
+      background: linear-gradient(135deg, rgba(184,98,255,.09), rgba(0,229,255,.025));
+    }
+    .commands-title { color: #d39aff; font-size: 21px; font-weight: 900; }
+    .commands-subtitle { max-width: 620px; margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .global-command-switch {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 190px;
+      padding: 11px 14px;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 11px;
+      background: rgba(0,0,0,.22);
+      cursor: pointer;
+      font-weight: 800;
+    }
+    .global-command-switch input { width: 19px; height: 19px; accent-color: #b862ff; }
+    .command-table {
+      overflow: hidden;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--card-radius);
+      background: var(--panel);
+      box-shadow: 0 12px 34px rgba(0,0,0,.28);
+    }
+    .command-head, .command-row {
+      display: grid;
+      grid-template-columns: minmax(150px,.8fr) minmax(220px,1.45fr) 110px minmax(250px,1fr);
+      align-items: center;
+      gap: 14px;
+      padding: 12px 16px;
+    }
+    .command-head {
+      border-bottom: 1px solid rgba(184,98,255,.3);
+      background: rgba(184,98,255,.08);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .command-row { min-height: 62px; border-bottom: 1px solid rgba(255,255,255,.055); }
+    .command-row:last-child { border-bottom: 0; }
+    .command-row:hover { background: rgba(184,98,255,.035); }
+    .command-name { display:flex; align-items:center; gap:9px; font-weight:900; color:#fff; }
+    .command-token {
+      display:inline-flex;
+      justify-content:center;
+      min-width:70px;
+      padding:6px 9px;
+      border:1px solid rgba(184,98,255,.35);
+      border-radius:7px;
+      background:rgba(184,98,255,.09);
+      color:#d39aff;
+      font-family:'JetBrains Mono',monospace;
+      font-size:12px;
+    }
+    .command-description { color:var(--muted); font-size:12px; line-height:1.4; }
+    .command-enabled { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:800; }
+    .command-enabled input { width:17px; height:17px; accent-color:#39ff6a; }
+    .role-options { display:flex; flex-wrap:wrap; gap:7px; }
+    .role-chip {
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      padding:6px 8px;
+      border:1px solid rgba(255,255,255,.09);
+      border-radius:7px;
+      background:rgba(255,255,255,.025);
+      color:#d7dbea;
+      font-size:11px;
+      font-weight:700;
+      cursor:pointer;
+    }
+    .role-chip input { margin:0; accent-color:#b862ff; }
+    .commands-footer { display:flex; justify-content:flex-end; margin-top:16px; }
+    .commands-note { margin-top:12px; color:var(--muted); font-size:12px; line-height:1.5; }
+    @media (max-width: 780px) {
+      .commands-hero { align-items:stretch; flex-direction:column; }
+      .global-command-switch { min-width:0; }
+      .command-head { display:none; }
+      .command-row { grid-template-columns:1fr auto; gap:9px 12px; }
+      .command-description { grid-column:1 / -1; }
+      .role-options { grid-column:1 / -1; }
+    }
+    @media (max-width: 480px) {
+      .command-row { padding:12px; }
+      .role-options { display:grid; grid-template-columns:repeat(3,1fr); }
+      .role-chip { justify-content:center; padding:7px 4px; }
+      .commands-footer .btn { width:100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav">
+    <div class="top-inner">
+      <div class="brand">
+        <div class="logo">IB</div>
+        <div>
+          <div style="font-weight:800;font-size:15px;line-height:1.1;">Ibot</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.1;">Panel de Control</div>
+        </div>
+      </div>
+      <nav class="top-links">
+        <a href="/" title="Inicio">🏠</a>
+        <a href="/grupos.html" title="Grupos">👥</a>
+        <a href="/contactos.html" title="Contactos">📇</a>
+        <a href="/comandos.html" class="active" title="Comandos">⌘</a>
+        <a href="/configuracion.html" title="Configuración">⚙️</a>
+        <a href="/logs.html" title="Logs">📜</a>
+        <button id="panelLogoutBtn" class="linklike" type="button" title="Salir" style="filter:drop-shadow(0 0 2px rgba(255,23,68,.85));">🚪</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <section class="panel commands-hero">
+        <div>
+          <div class="commands-title">Comandos del bot</div>
+          <div class="commands-subtitle">Este sistema es independiente del comportamiento principal. Define qué comandos existen y qué nivel de usuario puede ejecutarlos; el prefijo y la activación individual se configuran dentro de cada grupo.</div>
+        </div>
+        <label class="global-command-switch">
+          <input id="commandsEnabled" type="checkbox">
+          <span id="commandsEnabledLabel">Sistema desactivado</span>
+        </label>
+      </section>
+
+      <section class="command-table" aria-label="Configuración de comandos">
+        <div class="command-head">
+          <div>Comando</div>
+          <div>Función</div>
+          <div>Estado</div>
+          <div>Usuarios autorizados</div>
+        </div>
+        <div id="commandRows"></div>
+      </section>
+      <div class="commands-note">Los niveles se leen desde el propio grupo de WhatsApp: user corresponde a un miembro, admin a un administrador y owner al propietario del grupo. Puedes seleccionar varios.</div>
+      <div class="commands-footer">
+        <button id="saveCommands" class="btn" type="button">Guardar comandos</button>
+      </div>
+    </div>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/comandos.js"></script>
+</body>
+</html>

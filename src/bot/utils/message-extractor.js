@@ -16,6 +16,13 @@ export function extractMessage(msg) {
   const groupId = key.remoteJid || '';
   const message = unwrapMessage(msg?.message || {});
   const senderId = key.participant || msg?.participant || key.remoteJid || '';
+  const contextInfo = (
+    message.extendedTextMessage?.contextInfo
+    || message.imageMessage?.contextInfo
+    || message.videoMessage?.contextInfo
+    || message.documentMessage?.contextInfo
+    || {}
+  );
   const text =
     message.conversation ||
     message.extendedTextMessage?.text ||
@@ -39,6 +46,8 @@ export function extractMessage(msg) {
     groupId,
     senderId,
     senderName: msg?.pushName || '',
+    mentionedJids: Array.isArray(contextInfo.mentionedJid) ? contextInfo.mentionedJid : [],
+    quotedParticipant: contextInfo.participant || '',
     fromMe: !!key.fromMe,
     text: String(text || '').trim(),
     mediaType,

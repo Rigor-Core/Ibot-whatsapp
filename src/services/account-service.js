@@ -24,10 +24,10 @@ export function defaultBotConfig(accountId) {
     },
     ia: {
       enabled: false,
-      provider: 'zai',
+      provider: 'deepseek-compatible',
       apiKey: '',
-      baseUrl: process.env.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4',
-      model: process.env.ZAI_MODEL || 'glm-5.1',
+      baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://dipisik.rigorcore.com/v1',
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
       commandMode: 'required',
       commands: ['/chat', '/gpt'],
       systemPrompt: 'Eres un asistente útil, breve y profesional dentro de un grupo de WhatsApp. Responde en español salvo que el usuario pida otro idioma.',
@@ -50,27 +50,39 @@ export function defaultBotConfig(accountId) {
       groupId: '',
       message: '¡Bot de WhatsApp en línea!'
     },
+    timezone: 'America/Hermosillo',
+    adminCommands: {
+      enabled: false,
+      definitions: {
+        help: { enabled: true, roles: ['user', 'admin', 'owner'] },
+        status: { enabled: true, roles: ['admin', 'owner'] },
+        ban: { enabled: true, roles: ['admin', 'owner'] },
+        demote: { enabled: true, roles: ['owner'] },
+        group: { enabled: true, roles: ['admin', 'owner'] },
+        promote: { enabled: true, roles: ['owner'] },
+      },
+    },
     createdAt: now(),
     updatedAt: now(),
   };
 }
 
-export async function ensureDefaultAccount(collections) {
-  const accountId = normalizeAccountId(process.env.DEFAULT_ACCOUNT_ID || process.env.AUTH_USER || 'tago');
-  const label = process.env.DEFAULT_ACCOUNT_LABEL || process.env.AUTH_USER || 'Tago';
-  await ensureAccount(collections, accountId, label);
-  return accountId;
-}
+export async function ensureUserAccount(collections, user) {
+  const userId = String(user?._id || user?.uid || '').trim();
+  if (!userId) throw new Error('Usuario de panel inválido');
 
-export async function ensureAccount(collections, accountIdRaw, labelRaw, userId = null) {
-  const normalizedId = normalizeAccountId(accountIdRaw);
-  const prefix = userId ? `${userId}-` : '';
-  const accountId = (userId && !normalizedId.startsWith(prefix)) ? `${prefix}${normalizedId}` : normalizedId;
-  const label = labelRaw || accountIdRaw || accountId;
+  const existing = await collections.accounts.findOne(
+    { userId },
+    { sort: { createdAt: 1 } },
+  );
+  if (existing) return existing;
+
+  const accountId = normalizeAccountId(`bot-${userId}`);
+  const label = String(user?.username || 'Mi Bot').trim() || 'Mi Bot';
   const sessionPath = getAccountSessionPath(accountId);
-
   const setOnInsert = {
     accountId,
+    userId,
     label,
     status: 'stopped',
     phoneJid: null,
@@ -78,12 +90,9 @@ export async function ensureAccount(collections, accountIdRaw, labelRaw, userId 
     sessionPath,
     createdAt: now(),
   };
-  if (userId) {
-    setOnInsert.userId = userId;
-  }
 
   await collections.accounts.updateOne(
-    { accountId },
+    { userId },
     {
       $setOnInsert: setOnInsert,
       $set: { updatedAt: now() },
@@ -105,9 +114,8 @@ export async function ensureAccount(collections, accountIdRaw, labelRaw, userId 
   return collections.accounts.findOne({ accountId });
 }
 
-export async function listAccounts(collections, userId = null) {
-  const filter = userId ? { userId } : {};
-  return collections.accounts.find(filter).sort({ createdAt: 1 }).toArray();
+export async function getUserAccount(collections, user) {
+  return ensureUserAccount(collections, user);
 }
 
 export async function getConfig(collections, accountId) {

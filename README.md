@@ -1,59 +1,63 @@
 # Ibot v2
 
-Bot de WhatsApp con Baileys, Node.js, MongoDB, panel web, múltiples cuentas, logs locales, vista de chats y modo IA con Z.AI.
+Bot de WhatsApp construido con Node.js, Express, MongoDB y Baileys. Cada usuario del panel administra exclusivamente su propio bot y vincula su propio WhatsApp mediante QR.
 
-## Cambios principales
+## Funciones
 
-- Proyecto preparado para pnpm/Corepack.
-- Base nueva por defecto: `Ibotv2`.
-- Modo `flash` eliminado.
-- Modos disponibles: `normal`, `watch`, `ia`.
-- Inicio, apagado y cierre de sesión separados.
-- Apagar el bot ya no borra la sesión de WhatsApp.
-- Reconexión protegida contra sockets/listeners duplicados.
-- Grupos cacheados en memoria para respuesta rápida.
-- Contadores persistidos con cola en segundo plano.
-- Logs de consola en archivo local por cuenta, no en MongoDB.
-- Chats de grupos en archivo local por cuenta.
-- Ventana `Grupos` separada de `Configuración`.
-- Nueva ventana de configuración para modo normal e IA.
-- Vista Logs con modos `Consola` y `Chats`.
+- Un bot de WhatsApp por usuario registrado.
+- Registro público controlado por `PANEL_ALLOW_PUBLIC_REGISTRATION`.
+- Modos principales independientes: `normal`, `watch` e `ia` con API compatible con DeepSeek.
+- Gestión y monitoreo de grupos.
+- Directorio de contactos agrupado por grupo y contactos externos de Watch.
+- Mensajes programados persistentes con zona horaria configurable.
+- Comandos administrativos independientes por grupo: `help`, `status`, `ban`, `demote`, `group` y `promote`.
+- Permisos de comandos por nivel de WhatsApp: user, admin y owner.
+- Mensajes configurables de bienvenida y despedida.
+- Consola y chats observados en tiempo real.
 
-## Instalación
+## Requisitos
+
+- Node.js 20.18 o superior.
+- MongoDB.
+- pnpm 11.
+
+## Configuración
+
+```env
+PORT=4310
+MONGODB_URI=mongodb://127.0.0.1:27017
+MONGODB_DB=Ibotv2
+PANEL_AUTH_ENABLED=true
+PANEL_ALLOW_PUBLIC_REGISTRATION=false
+PANEL_SECRET=cambia_este_secreto
+COOKIE_SECURE=false
+NODE_ENV=development
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://dipisik.rigorcore.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+Cuando `PANEL_ALLOW_PUBLIC_REGISTRATION=true`, cualquier persona con acceso a la página de registro puede crear su usuario. El sistema crea automáticamente su único bot y ese usuario puede vincular su propio WhatsApp sin compartir sesiones con otros usuarios.
+
+## Ejecución
 
 ```bash
-corepack enable
-corepack prepare pnpm@11.0.0 --activate
-pnpm install
-cp .env.example .env
-nano .env
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
 pnpm start
 ```
 
-## Variables importantes
+## Uso
 
-```env
-MONGODB_URI=mongodb://127.0.0.1:27017
-MONGODB_DB=Ibotv2
-DEFAULT_ACCOUNT_ID=tago
-PANEL_AUTH_ENABLED=true
-PANEL_USER=admin
-PANEL_PASSWORD=cambia_esta_clave
-ZAI_API_KEY=
-```
+1. Crea un usuario desde `register.html` cuando el registro esté permitido.
+2. Inicia sesión en el panel.
+3. Desde Inicio, enciende el bot y escanea el QR con el WhatsApp que administrará ese usuario.
+4. Configura los grupos, respuestas y modos principales.
+5. Configura la zona horaria en Configuración.
+6. Activa y define permisos en Comandos.
+7. Habilita los comandos dentro de cada grupo y personaliza su prefijo, bienvenida y despedida.
 
-## Migración opcional desde v1
+Los comandos y los eventos de bienvenida/despedida son independientes del modo principal. Si el sistema global de comandos o el comando del grupo está desactivado, también quedan desactivados los mensajes de bienvenida y despedida de ese grupo.
 
-La base vieja no se toca. Para copiar grupos y contador desde `Ibot` hacia `Ibotv2`:
-
-```bash
-MONGODB_DB_OLD=Ibot MONGODB_DB=Ibotv2 pnpm migrate:v1
-```
-
-## Uso del modo IA
-
-Entra a `/configuracion.html`, selecciona modo `IA`, activa IA, configura API key/modelo/comandos y guarda. El endpoint por defecto es compatible con `/chat/completions` de Z.AI.
-
-## Seguridad
-
-En producción deja `PANEL_AUTH_ENABLED=true` y cambia `PANEL_PASSWORD`. No expongas el panel sin autenticación.
+Para usar el modo IA, configura `DEEPSEEK_API_KEY` en el entorno o ingresa la clave desde Configuración. El endpoint predeterminado usa `deepseek-chat`; también admite `deepseek-search` y `deepseek-reasoner`.
