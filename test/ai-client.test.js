@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DeepSeekClient } from '../src/services/deepseek-client.js';
+import { AiChatClient } from '../src/services/ai-client.js';
 
-test('envía solicitudes en el formato compatible con DeepSeek', async () => {
+test('envía solicitudes en formato chat/completions con campos extra del proveedor', async () => {
   const originalFetch = globalThis.fetch;
   let request;
   globalThis.fetch = async (url, options) => {
@@ -13,7 +13,7 @@ test('envía solicitudes en el formato compatible con DeepSeek', async () => {
   };
 
   try {
-    const client = new DeepSeekClient({
+    const client = new AiChatClient({
       apiKey: 'test-key',
       baseUrl: 'https://dipisik.rigorcore.com/v1/',
       model: 'deepseek-chat',
@@ -22,6 +22,7 @@ test('envía solicitudes en el formato compatible con DeepSeek', async () => {
       messages: [{ role: 'user', content: 'Hola' }],
       temperature: 0.2,
       maxTokens: 120,
+      extraBody: { profile: 'whatsapp' },
     });
 
     assert.equal(answer, 'Respuesta del modelo');
@@ -33,6 +34,7 @@ test('envía solicitudes en el formato compatible con DeepSeek', async () => {
       temperature: 0.2,
       max_tokens: 120,
       stream: false,
+      profile: 'whatsapp',
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -46,7 +48,7 @@ test('incluye el detalle de errores del servicio', async () => {
   }), { status: 429, statusText: 'Too Many Requests', headers: { 'Content-Type': 'application/json' } });
 
   try {
-    const client = new DeepSeekClient({ apiKey: 'test-key' });
+    const client = new AiChatClient({ apiKey: 'test-key', baseUrl: 'https://api.deepseek.com/v1', providerName: 'DeepSeek' });
     await assert.rejects(
       client.chat({ messages: [] }),
       /DeepSeek 429: Modelo no disponible/,

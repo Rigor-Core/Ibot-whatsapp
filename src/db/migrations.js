@@ -1,21 +1,21 @@
 // Migraciones de datos idempotentes que se ejecutan al arrancar el servidor.
-const DEFAULT_DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://dipisik.rigorcore.com/v1';
-const DEFAULT_DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+export const CONFIG_SCHEMA_VERSION = 2;
 
 export async function runDataMigrations(collections) {
-  // Configuraciones heredadas del proveedor z.ai: se migran una sola vez en la
-  // base de datos en lugar de corregirlas en cada mensaje del modo IA.
-  const [baseUrls, models] = await Promise.all([
-    collections.configs.updateMany(
-      { 'ia.baseUrl': { $regex: 'api\\.z\\.ai', $options: 'i' } },
-      { $set: { 'ia.baseUrl': DEFAULT_DEEPSEEK_BASE_URL, updatedAt: new Date() } },
-    ),
-    collections.configs.updateMany(
-      { 'ia.model': { $regex: '^glm-', $options: 'i' } },
-      { $set: { 'ia.model': DEFAULT_DEEPSEEK_MODEL, updatedAt: new Date() } },
-    ),
-  ]);
-  if (baseUrls.modifiedCount || models.modifiedCount) {
-    console.log(`[migrations] IA heredada migrada a DeepSeek: ${baseUrls.modifiedCount} URL(s), ${models.modifiedCount} modelo(s)`);
+  // v2: el antiguo modo "normal" (respuestas rápidas a pedidos) pasa a llamarse
+  // "repartidor" y "normal" queda solo para comandos de grupo. Se aplica una
+  // sola vez por cuenta para no revertir a quien elija después el modo normal.
+  const pending = { $or: [{ schemaVersion: { $exists: false } }, { schemaVersion: { $lt: CONFIG_SCHEMA_VERSION } }] };
+  const modes = await collections.configs.updateMany(
+    { ...pending, modo: { $in: ['normal', 'flash'] } },
+    { $set: { modo: 'repartidor' } },
+  );
+  await collections.configs.updateMany(
+    { ...pending, normal: { $exists: true } },
+    { $rename: { normal: 'repartidor' } },
+  );
+  const marked = await collections.configs.updateMany(pending, { $set: { schemaVersion: CONFIG_SCHEMA_VERSION } });
+  if (marked.modifiedCount) {
+    console.log(`[migrations] Modos v2: ${marked.modifiedCount} cuenta(s) revisada(s), ${modes.modifiedCount} pasaron a modo repartidor`);
   }
 }

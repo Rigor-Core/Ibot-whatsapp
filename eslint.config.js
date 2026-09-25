@@ -19,6 +19,7 @@ export default [
         sessionStorage: 'readonly',
         EventSource: 'readonly',
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
         Blob: 'readonly',
         Intl: 'readonly',
         URL: 'readonly',

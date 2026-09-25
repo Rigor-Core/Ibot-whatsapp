@@ -1,6 +1,8 @@
 import path from 'path';
 import { DEFAULT_TIMEZONE, normalizeAccountId, now } from '../core/utils.js';
 import { getSystemSettings } from './settings-service.js';
+import { normalizeIaConfig } from './ai-providers.js';
+import { CONFIG_SCHEMA_VERSION } from '../db/migrations.js';
 
 export function getStorageRoot() {
   return process.env.STORAGE_DIR || 'storage/accounts';
@@ -17,31 +19,14 @@ export function defaultBotConfig(accountId, { timezone = DEFAULT_TIMEZONE } = {}
     respuestas: false,
     estado: 'inicial',
     qr: null,
-    modo: 'normal',
-    normal: {
+    modo: 'repartidor',
+    schemaVersion: CONFIG_SCHEMA_VERSION,
+    repartidor: {
       globalLimit: 1,
       filterEnabled: true,
       ignoreOwnMessages: true,
     },
-    ia: {
-      enabled: false,
-      provider: 'deepseek-compatible',
-      apiKey: '',
-      baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://dipisik.rigorcore.com/v1',
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-      commandMode: 'required',
-      commands: ['/chat', '/gpt'],
-      systemPrompt: 'Eres un asistente útil, breve y profesional dentro de un grupo de WhatsApp. Responde en español salvo que el usuario pida otro idioma.',
-      temperature: 0.6,
-      maxTokens: 500,
-      timeoutMs: 20000,
-      perGroupCooldownMs: 3000,
-      historyLimit: 8,
-      fallbackText: 'No pude generar una respuesta en este momento.',
-      onlyConfiguredGroups: true,
-      ignoreMedia: true,
-      ignoreOwnMessages: true,
-    },
+    ia: normalizeIaConfig({}),
     logs: {
       maxConsoleLines: 1000,
       maxChatMessages: 3000,

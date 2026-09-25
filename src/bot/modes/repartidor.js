@@ -3,9 +3,12 @@ import { messageAllowedByType, normalizeReply } from '../utils/message-extractor
 
 const EMPTY_OPTS = Object.freeze({});
 
-export function handleNormal(extracted, ctx) {
+// Modo repartidor: responde de forma instantánea a los pedidos de los grupos
+// activos. Todo lo que no es imprescindible para responder ocurre después del envío.
+export function handleRepartidor(extracted, ctx) {
+  const settings = ctx.config.repartidor || {};
   // Ignorar mensajes propios si ignoreOwnMessages está activado
-  if (ctx.config.normal?.ignoreOwnMessages !== false && extracted.fromMe) return false;
+  if (settings.ignoreOwnMessages !== false && extracted.fromMe) return false;
 
   const cfg = ctx.groupsById.get(extracted.groupId);
   if (!cfg || !cfg.responder) return false;
@@ -23,7 +26,7 @@ export function handleNormal(extracted, ctx) {
   }
 
   if (!messageAllowedByType(extracted, cfg.tipoMensaje)) return false;
-  const filterEnabled = ctx.config.normal?.filterEnabled !== false;
+  const filterEnabled = settings.filterEnabled !== false;
   const shouldSend = extracted.mediaType === 'image'
     ? ['imagen', 'ambas'].includes(cfg.tipoMensaje)
     : filtrarPalabras(extracted.text, { enabled: filterEnabled });
@@ -58,14 +61,10 @@ export function handleNormal(extracted, ctx) {
         ` | TOTAL: ${totalTime.toFixed(2)}ms`
       );
 
-      if (ctx.config.modo === 'watch') {
-        ctx.chatStore.recordOutgoing({ groupId: extracted.groupId, groupName: cfg.nombre, text: reply.text || '[respuesta multimedia]' });
-      }
-
       // Procesar persistencia en base de datos estrictamente después
       if (localLimitReached) disableGroup(ctx, extracted.groupId, cfg);
 
-      const globalLimit = Number(ctx.config.normal?.globalLimit ?? 1);
+      const globalLimit = Number(settings.globalLimit ?? 1);
       if (!isIndependent && globalLimit > 0 && ctx.state.mensajesRespondidos >= globalLimit) {
         ctx.state.mensajesRespondidos = 0;
         ctx.config.respuestas = false;
@@ -73,7 +72,7 @@ export function handleNormal(extracted, ctx) {
           { accountId: ctx.accountId },
           { $set: { respuestas: false, updatedAt: new Date() } },
         ).catch(() => null);
-        ctx.logger.info('normal', 'Respuestas globales desactivadas por límite', { globalLimit });
+        ctx.logger.info('repartidor', 'Respuestas globales desactivadas por límite', { globalLimit });
       }
     })
     .catch((err) => {
@@ -82,7 +81,7 @@ export function handleNormal(extracted, ctx) {
       ctx.state.ordenesRecibidas = Math.max(0, ctx.state.ordenesRecibidas - 1);
       ctx.state.mensajesRespondidos = Math.max(0, ctx.state.mensajesRespondidos - 1);
 
-      ctx.logger.warn('normal', 'No se pudo enviar respuesta', { groupId: extracted.groupId, error: err.message });
+      ctx.logger.warn('repartidor', 'No se pudo enviar respuesta', { groupId: extracted.groupId, error: err.message });
     });
 
   return true;
@@ -95,5 +94,5 @@ function disableGroup(ctx, groupId, cfg) {
     { accountId: ctx.accountId, groupId },
     { $set: { responder: false, updatedAt: new Date() } },
   ).catch(() => null);
-  ctx.logger.info('normal', 'Grupo desactivado por límite', { groupId, limite: cfg.limite });
+  ctx.logger.info('repartidor', 'Grupo desactivado por límite', { groupId, limite: cfg.limite });
 }

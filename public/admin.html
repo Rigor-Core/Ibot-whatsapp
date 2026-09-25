@@ -96,7 +96,7 @@
               <div class="card-header">
                 <div>
                   <div class="card-title">Respuestas enviadas por día</div>
-                  <div class="card-sub">Pedidos tomados por el modo normal en todas las cuentas</div>
+                  <div class="card-sub">Pedidos tomados por el modo repartidor en todas las cuentas</div>
                 </div>
                 <div class="spacer"></div>
                 <div class="chart-total" id="ordersTotal">0</div>
@@ -252,6 +252,24 @@
                   <div class="hint">Máximo de usuarios registrados. 0 = sin límite.</div>
                 </div>
                 <div class="control"><input type="number" id="setMaxUsers" min="0" step="1"></div>
+              </div>
+              <div class="setting-row">
+                <div class="text">
+                  <div class="title">IA: compartir Dipisik</div>
+                  <div class="hint">Los usuarios pueden usar Dipisik en el modo IA con la clave del servidor (DIPISIK_API_KEY), sin tener clave propia.</div>
+                </div>
+                <div class="control auto">
+                  <label class="switch"><input type="checkbox" id="setAiShared"><span></span></label>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="text">
+                  <div class="title">IA: endpoints personalizados</div>
+                  <div class="hint">Permite proveedores con URL propia (Ollama, LM Studio…). El servidor hará peticiones a las URL que escriban los usuarios: actívalo solo si confías en ellos.</div>
+                </div>
+                <div class="control auto">
+                  <label class="switch"><input type="checkbox" id="setAiCustom"><span></span></label>
+                </div>
               </div>
               <div class="form-error" id="settingsError"></div>
               <div style="display:flex;justify-content:flex-end">

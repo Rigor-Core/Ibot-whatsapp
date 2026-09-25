@@ -63,7 +63,7 @@ export async function buildOverview({ collections, registry }) {
       phoneName: account.phoneName || null,
       active: config?.activo === true,
       respuestas: config?.respuestas === true,
-      mode: config?.modo || 'normal',
+      mode: config?.modo || 'repartidor',
       groups: groupCounts.get(account.accountId) || 0,
       contacts: contactCounts.get(account.accountId) || 0,
       messages: messageCounts.get(account.accountId) || 0,
@@ -199,7 +199,7 @@ export function systemInfo({ registry, scheduler }) {
     panelAuthEnabled: String(process.env.PANEL_AUTH_ENABLED || 'true').toLowerCase() !== 'false',
     secureCookies: process.env.NODE_ENV === 'production' && String(process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true',
     persistentSecret: !!(process.env.PANEL_SECRET || process.env.PANEL_PASSWORD),
-    deepseekKeyConfigured: !!process.env.DEEPSEEK_API_KEY,
+    dipisikKeyConfigured: !!(process.env.DIPISIK_API_KEY || process.env.DEEPSEEK_API_KEY),
   };
 }
 

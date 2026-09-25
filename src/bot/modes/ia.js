@@ -1,48 +1,36 @@
-import { DeepSeekClient } from '../../services/deepseek-client.js';
+import { askIa } from '../../services/ai-providers.js';
+import { getSystemSettingsCached } from '../../services/settings-service.js';
 
-const DEFAULT_DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://dipisik.rigorcore.com/v1';
-const DEFAULT_DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
-const MAX_CACHED_CLIENTS = 50;
-const clients = new Map();
-
-// Reutiliza un cliente por combinación de credenciales y endpoint en lugar de
-// crear uno nuevo por cada mensaje.
-function clientFor({ apiKey, baseUrl, model, timeoutMs }) {
-  const cacheKey = [apiKey, baseUrl, model, timeoutMs].join('|');
-  let client = clients.get(cacheKey);
-  if (!client) {
-    if (clients.size >= MAX_CACHED_CLIENTS) clients.delete(clients.keys().next().value);
-    client = new DeepSeekClient({ apiKey, baseUrl, model, timeoutMs });
-    clients.set(cacheKey, client);
-  }
-  return client;
-}
-
-function parseCommand(text, iaConfig) {
+function parseCommand(text, ia) {
   const trimmed = String(text || '').trim();
-  const commands = Array.isArray(iaConfig.commands) && iaConfig.commands.length ? iaConfig.commands : ['/chat'];
-  const found = commands.find((cmd) => trimmed.toLowerCase().startsWith(`${String(cmd).toLowerCase()} `) || trimmed.toLowerCase() === String(cmd).toLowerCase());
+  const lower = trimmed.toLowerCase();
+  const found = ia.commands.find((cmd) => lower === cmd.toLowerCase() || lower.startsWith(`${cmd.toLowerCase()} `));
   if (found) return { ok: true, prompt: trimmed.slice(found.length).trim(), command: found };
-  if (iaConfig.commandMode === 'required') return { ok: false, prompt: '', command: null };
+  if (ia.commandMode === 'required') return { ok: false, prompt: '', command: null };
   return { ok: true, prompt: trimmed, command: null };
 }
 
 function remember(ctx, groupId, role, content, limit) {
+  if (limit <= 0) return;
   if (!ctx.aiMemory.has(groupId)) ctx.aiMemory.set(groupId, []);
-  const arr = ctx.aiMemory.get(groupId);
-  arr.push({ role, content: String(content || '').slice(0, 2000) });
-  while (arr.length > limit) arr.shift();
-  return arr;
+  const history = ctx.aiMemory.get(groupId);
+  history.push({ role, content: String(content || '').slice(0, 2000) });
+  while (history.length > limit) history.shift();
 }
 
+function mentionFor(jid) {
+  return `@${String(jid || '').split('@')[0].split(':')[0]}`;
+}
+
+// Modo IA: responde en los grupos con el proveedor y la personalidad que el
+// usuario configuró. Se ejecuta sin bloquear el procesamiento de otros mensajes.
 export async function handleIa(extracted, ctx) {
-  const ia = ctx.config.ia || {};
-  if (ia.enabled === false) return false;
-  if (ia.ignoreOwnMessages !== false && extracted.fromMe) return false;
-  if (ia.ignoreMedia !== false && extracted.mediaType && !extracted.text) return false;
+  const ia = ctx.config.ia;
+  if (ia.ignoreOwnMessages && extracted.fromMe) return false;
+  if (ia.ignoreMedia && extracted.mediaType && !extracted.text) return false;
 
   const cfg = ctx.groupsById.get(extracted.groupId);
-  if (ia.onlyConfiguredGroups !== false) {
+  if (ia.onlyConfiguredGroups) {
     if (!cfg || !cfg.responder) return false;
     if (!cfg.independiente && !ctx.config.respuestas) return false;
   }
@@ -50,49 +38,44 @@ export async function handleIa(extracted, ctx) {
   const parsed = parseCommand(extracted.text, ia);
   if (!parsed.ok || !parsed.prompt) return false;
 
-  const cooldown = Number(ia.perGroupCooldownMs || 0);
-  const last = ctx.state.aiCooldowns.get(extracted.groupId) || 0;
   const now = Date.now();
-  if (cooldown > 0 && now - last < cooldown) return false;
+  const last = ctx.state.aiCooldowns.get(extracted.groupId) || 0;
+  if (ia.perGroupCooldownMs > 0 && now - last < ia.perGroupCooldownMs) return false;
   ctx.state.aiCooldowns.set(extracted.groupId, now);
 
-  const apiKey = ia.apiKey && !String(ia.apiKey).includes('*') ? ia.apiKey : (process.env.DEEPSEEK_API_KEY || '');
-  const client = clientFor({
-    apiKey,
-    baseUrl: ia.baseUrl || DEFAULT_DEEPSEEK_BASE_URL,
-    model: ia.model || DEFAULT_DEEPSEEK_MODEL,
-    timeoutMs: ia.timeoutMs,
-  });
-
-  const historyLimit = Math.min(Math.max(Number(ia.historyLimit || 8), 0), 20);
+  const memoryLimit = ia.historyLimit * 2;
   const history = ctx.aiMemory.get(extracted.groupId) || [];
+  const userContent = ia.includeSenderName && extracted.senderName
+    ? `${extracted.senderName}: ${parsed.prompt}`
+    : parsed.prompt;
   const messages = [
-    { role: 'system', content: ia.systemPrompt || 'Eres un asistente útil dentro de WhatsApp.' },
-    ...history.slice(-historyLimit),
-    { role: 'user', content: parsed.prompt },
+    ...(ia.systemPrompt ? [{ role: 'system', content: ia.systemPrompt }] : []),
+    ...history.slice(-memoryLimit),
+    { role: 'user', content: userContent },
   ];
+  const sendOptions = ia.replyQuoted ? { quoted: extracted.raw } : {};
 
+  if (ia.showTyping) ctx.socket.sendPresenceUpdate('composing', extracted.groupId).catch(() => null);
   try {
-    remember(ctx, extracted.groupId, 'user', parsed.prompt, historyLimit * 2 || 12);
-    const answer = await client.chat({
-      messages,
-      temperature: Number(ia.temperature ?? 0.6),
-      maxTokens: Number(ia.maxTokens ?? 500),
-    });
+    const settings = await getSystemSettingsCached(ctx.collections);
+    let answer = await askIa(ia, settings, messages);
     if (!answer) return false;
-    await ctx.socket.sendMessage(extracted.groupId, { text: answer });
-    if (ctx.config.modo === 'watch') {
-      ctx.chatStore.recordOutgoing({ groupId: extracted.groupId, groupName: cfg?.nombre || extracted.groupId, text: answer });
-    }
-    remember(ctx, extracted.groupId, 'assistant', answer, historyLimit * 2 || 12);
-    ctx.logger.info('ia', 'Respuesta IA enviada', { groupId: extracted.groupId, command: parsed.command });
+    if (ia.maxReplyChars > 0 && answer.length > ia.maxReplyChars) answer = `${answer.slice(0, ia.maxReplyChars - 1)}…`;
+    const content = ia.mentionSender && extracted.senderId
+      ? { text: `${mentionFor(extracted.senderId)} ${answer}`, mentions: [extracted.senderId] }
+      : { text: answer };
+    await ctx.socket.sendMessage(extracted.groupId, content, sendOptions);
+    remember(ctx, extracted.groupId, 'user', userContent, memoryLimit);
+    remember(ctx, extracted.groupId, 'assistant', answer, memoryLimit);
+    ctx.logger.info('ia', 'Respuesta IA enviada', { groupId: extracted.groupId, provider: ia.provider, model: ia.model });
     return true;
   } catch (err) {
-    ctx.logger.warn('ia', 'Error en modo IA', { groupId: extracted.groupId, error: err.message });
-    const fallback = ia.fallbackText || 'No pude generar una respuesta en este momento.';
-    if (fallback) {
-      ctx.socket.sendMessage(extracted.groupId, { text: fallback }).catch(() => null);
+    ctx.logger.warn('ia', 'Error en modo IA', { groupId: extracted.groupId, provider: ia.provider, error: err.message });
+    if (ia.fallbackText) {
+      ctx.socket.sendMessage(extracted.groupId, { text: ia.fallbackText }, sendOptions).catch(() => null);
     }
     return false;
+  } finally {
+    if (ia.showTyping) ctx.socket?.sendPresenceUpdate('paused', extracted.groupId).catch(() => null);
   }
 }

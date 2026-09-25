@@ -66,7 +66,6 @@ export function publicSafeConfig(config) {
   if (!config) return null;
   const clone = structuredClone(config);
   if (clone._id) delete clone._id;
-  if (clone.ia?.apiKey) clone.ia.apiKey = '********';
   return clone;
 }
 

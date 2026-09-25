@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import fs from 'fs';
 import { ObjectId } from 'mongodb';
+import { panelSecret } from '../core/secrets.js';
 import { assertUserCapacity, getSystemSettings } from '../services/settings-service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -23,35 +23,6 @@ const ADMIN_PAGES = new Set(['/admin', '/admin.html']);
 
 export function homePathFor(role) {
   return role === ROLE_OWNER ? '/admin.html' : '/';
-}
-
-// Resolve the HMAC signing secret following a secure multi-tier strategy:
-// 1. Environment variable (production)
-// 2. Local file (deployment)
-// 3. Ephemeral random key (development only — logs a warning)
-let _cachedSecret = null;
-function panelSecret() {
-  if (_cachedSecret) return _cachedSecret;
-  if (process.env.PANEL_SECRET) {
-    _cachedSecret = process.env.PANEL_SECRET;
-    return _cachedSecret;
-  }
-  if (process.env.PANEL_PASSWORD) {
-    _cachedSecret = process.env.PANEL_PASSWORD;
-    return _cachedSecret;
-  }
-  try {
-    const filePath = new URL('./panel_secret.txt', import.meta.url);
-    const content = fs.readFileSync(filePath, 'utf-8').trim();
-    if (content) {
-      _cachedSecret = content;
-      return _cachedSecret;
-    }
-  } catch { /* file not found, continue */ }
-  // TODO(security): In production, enforce a persistent secret via env var or KMS.
-  console.warn('[SECURITY] Generating ephemeral HMAC secret. Sessions will NOT survive restarts. Set PANEL_SECRET env var for production.');
-  _cachedSecret = crypto.randomBytes(32).toString('hex');
-  return _cachedSecret;
 }
 
 function isSecureCookie() {

@@ -1,5 +1,12 @@
 import path from 'path';
-import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers } from '@whiskeysockets/baileys';
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+  Browsers,
+  isJidBroadcast,
+  isJidNewsletter,
+} from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import { FileLogStore } from '../core/file-log-store.js';
 import { ChatStore } from '../core/chat-store.js';
@@ -8,16 +15,28 @@ import { ensureDir, now } from '../core/utils.js';
 import { getAccountSessionPath } from '../services/account-service.js';
 import { normalizeGroupDoc } from './utils/group-normalizer.js';
 import { extractMessage } from './utils/message-extractor.js';
-import { handleNormal } from './modes/normal.js';
+import { handleRepartidor } from './modes/repartidor.js';
 import { handleWatch } from './modes/watch.js';
 import { handleIa } from './modes/ia.js';
 import { hasRegisteredCreds, useMongoDBAuthState } from './utils/mongo-auth-state.js';
+import { TtlCache } from './utils/ttl-cache.js';
+import { normalizeIaConfig } from '../services/ai-providers.js';
 import {
   handleAdminCommand,
   normalizeAdminCommandsConfig,
   normalizeGroupCommandSettings,
   renderGroupEventMessage,
 } from '../services/admin-command-service.js';
+
+export const BOT_MODES = Object.freeze(['repartidor', 'normal', 'watch', 'ia']);
+export const DEFAULT_MODE = 'repartidor';
+
+// Los dispositivos de los participantes cambian poco y Baileys actualiza la caché
+// cuando WhatsApp avisa de cambios. Con el TTL por defecto (5 min) la primera
+// respuesta tras un rato sin actividad tenía que consultarlos de nuevo.
+const DEVICE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const WARMUP_INTERVAL_MS = 10 * 60 * 1000;
+const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000, 15000];
 
 function normalizeContactJid(value) {
   const raw = String(value || '').trim().split('/')[0];
@@ -65,6 +84,9 @@ export class BotRuntime {
     this.isStarting = false;
     this.isStopping = false;
     this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
+    this.warmupTimer = null;
+    this.userDevicesCache = new TtlCache({ ttlMs: DEVICE_CACHE_TTL_MS });
     this.generation = 0;
     this.state = {
       ordenesRecibidas: 0,
@@ -157,9 +179,15 @@ export class BotRuntime {
   async reloadConfig() {
     const oldRespuestas = this.config?.respuestas;
     const config = await this.collections.configs.findOne({ accountId: this.accountId });
-    this.config = config || { accountId: this.accountId, activo: false, respuestas: false, modo: 'normal' };
-    if (this.config.modo === 'flash') this.config.modo = 'normal';
+    const previousMode = this.config?.modo;
+    this.config = config || { accountId: this.accountId, activo: false, respuestas: false, modo: DEFAULT_MODE };
+    if (!BOT_MODES.includes(this.config.modo)) this.config.modo = DEFAULT_MODE;
     this.config.adminCommands = normalizeAdminCommandsConfig(this.config.adminCommands);
+    this.config.ia = normalizeIaConfig(this.config.ia);
+    if (previousMode && previousMode !== this.config.modo) {
+      this.logger.info('runtime', 'Modo cambiado', { modo: this.config.modo });
+      if (this.config.modo === 'repartidor') this.warmUpActiveGroups();
+    }
 
     if (!oldRespuestas && this.config.respuestas) {
       this.state.mensajesRespondidos = 0;
@@ -178,6 +206,7 @@ export class BotRuntime {
   mergeGroup(doc) {
     const parsed = normalizeGroupDoc(doc);
     const current = this.groupsById.get(parsed.groupId);
+    if (parsed.responder && !current?.responder) this.warmUpIfRepartidor(parsed.groupId);
     if (!current) return parsed;
     const memoryAhead = Number(current.contador || 0) > Number(parsed.contador || 0);
     const contador = memoryAhead ? Number(current.contador || 0) : Number(parsed.contador || 0);
@@ -328,6 +357,9 @@ export class BotRuntime {
         // cause WhatsApp to reject the QR handshake with error 408 (connectionLost).
         browser: Browsers.ubuntu('Chrome'),
         markOnlineOnConnect: false,
+        userDevicesCache: this.userDevicesCache,
+        // Estados y canales no se usan: ignorarlos ahorra trabajo en cada evento.
+        shouldIgnoreJid: (jid) => isJidBroadcast(jid) || isJidNewsletter(jid),
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
         cachedGroupMetadata: async (jid) => {
@@ -391,7 +423,7 @@ export class BotRuntime {
           if (extracted.senderId && extracted.senderName) {
             this.saveContact(extracted.senderId, extracted.senderName);
           }
-          if (this.config?.modo === 'watch') {
+          if (this.config?.modo === 'watch' && extracted.isGroup) {
             this.recordChatMessage(extracted);
           }
         }
@@ -425,6 +457,7 @@ export class BotRuntime {
     }
     if (connection === 'open') {
       this.qr = null;
+      this.reconnectAttempts = 0;
       this.connectTime = Math.floor(Date.now() / 1000);
       await this.collections.qrHistory.deleteMany({ accountId: this.accountId }).catch(() => null);
       // Enviar notificación si está configurada antes de pasar al estado connected
@@ -434,14 +467,19 @@ export class BotRuntime {
       await this.updateStatus('connected', { qr: null, phoneJid: this.socket?.user?.id || null, phoneName: this.socket?.user?.name || null });
       this.logger.info('connection', 'WhatsApp conectado', { user: this.socket?.user });
       
-      // Pre-cargar la metadata de todos los grupos configurados en segundo plano
-      for (const groupId of this.groupsById.keys()) {
-        this.refreshGroupMetadata(groupId, true).catch(() => null);
-      }
+      // Pre-cargar la metadata de los grupos configurados y dejar listo el envío
+      // del repartidor (dispositivos y sesiones de cifrado) en segundo plano.
+      Promise.allSettled([...this.groupsById.keys()].map((groupId) => this.refreshGroupMetadata(groupId, true)))
+        .then(() => this.warmUpActiveGroups());
+      clearInterval(this.warmupTimer);
+      this.warmupTimer = setInterval(() => this.warmUpActiveGroups(), WARMUP_INTERVAL_MS);
+      this.warmupTimer.unref?.();
       return;
     }
     if (connection === 'close') {
       this.connectTime = null;
+      clearInterval(this.warmupTimer);
+      this.warmupTimer = null;
       const code = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut || code === 401;
       this.logger.warn('connection', 'Conexión cerrada', { code, loggedOut });
@@ -464,13 +502,55 @@ export class BotRuntime {
     const active = (await this.collections.configs.findOne({ accountId: this.accountId }))?.activo;
     if (!active) return;
     await this.updateStatus('reconnecting');
+    // Reconexión inmediata al principio y con espera creciente si sigue fallando.
+    const delay = RECONNECT_DELAYS_MS[Math.min(this.reconnectAttempts, RECONNECT_DELAYS_MS.length - 1)];
+    this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.stopSocketOnly().finally(() => this.start().catch((err) => {
         this.logger.error('runtime', 'Reconexion fallida', { error: err.message });
       }));
-    }, 2500);
+    }, delay);
     this.reconnectTimer.unref?.();
+  }
+
+  // Precalienta el envío en los grupos donde responde el repartidor: metadata,
+  // dispositivos de los participantes y sesiones de cifrado quedan listos antes
+  // del primer pedido, para que la respuesta no espere consultas a WhatsApp.
+  async warmUpActiveGroups() {
+    const sock = this.socket;
+    if (!sock || this.status !== 'connected' || this.config?.modo !== 'repartidor') return;
+    const started = performance.now();
+    const groupIds = [...this.groupsById.values()].filter((group) => group.responder).map((group) => group.groupId);
+    let warmed = 0;
+    for (const groupId of groupIds) {
+      if (this.socket !== sock) return;
+      try {
+        await this.warmUpGroup(groupId, sock);
+        warmed += 1;
+      } catch (err) {
+        this.logger.debug('warmup', 'No se pudo precalentar un grupo', { groupId, error: err.message });
+      }
+    }
+    if (warmed) {
+      this.logger.info('warmup', 'Grupos listos para responder', { grupos: warmed, ms: Math.round(performance.now() - started) });
+    }
+  }
+
+  // Un grupo recién activado se precalienta en cuanto el panel lo guarda.
+  warmUpIfRepartidor(groupId) {
+    if (this.status !== 'connected' || this.config?.modo !== 'repartidor') return;
+    this.warmUpGroup(groupId).catch(() => null);
+  }
+
+  async warmUpGroup(groupId, sock = this.socket) {
+    if (!sock?.getUSyncDevices || !sock?.assertSessions) return;
+    const metadata = await this.getGroupMetadata(groupId);
+    const participants = (metadata?.participants || []).map((participant) => participant.id).filter(Boolean);
+    if (!participants.length) return;
+    const devices = await sock.getUSyncDevices(participants, true, false);
+    const deviceJids = devices.map((device) => device.jid).filter(Boolean);
+    if (deviceJids.length) await sock.assertSessions(deviceJids, false);
   }
 
   async sendConnectionNotification() {
@@ -483,6 +563,9 @@ export class BotRuntime {
     }
   }
 
+  // Los modos son exclusivos. La respuesta del modo sale antes que cualquier
+  // trabajo secundario (contactos, chats, metadata) para que el repartidor
+  // responda lo más rápido posible.
   async handleMessages(payload) {
     const msgs = payload?.messages || [];
     const isHistory = payload?.type === 'append';
@@ -490,43 +573,44 @@ export class BotRuntime {
       if (!msg?.message) continue;
       const msgStartTime = performance.now();
       const extracted = extractMessage(msg);
+      const mode = this.config?.modo;
+      const live = extracted.isGroup && !isHistory && this.isLiveMessage(extracted);
+
+      if (live) {
+        const ctx = this.createModeContext();
+        ctx.msgStartTime = msgStartTime;
+        ctx.extractionTime = performance.now() - msgStartTime;
+        this.dispatchMode(mode, extracted, ctx);
+      }
 
       if (extracted.senderId && extracted.senderName) {
         this.saveContact(extracted.senderId, extracted.senderName);
       }
-
-      if (this.config?.modo === 'watch') {
-        this.recordChatMessage(extracted);
-        if (extracted.isGroup) {
-          this.refreshGroupMetadata(extracted.groupId).catch(() => null);
-        }
+      if (extracted.isGroup && mode === 'watch') this.recordChatMessage(extracted);
+      if (extracted.isGroup && (live || mode === 'watch')) {
+        this.refreshGroupMetadata(extracted.groupId).catch(() => null);
       }
+    }
+  }
 
-      if (!extracted.isGroup) continue;
+  // Solo se procesan mensajes recibidos con la sesión abierta y de menos de 15 s.
+  isLiveMessage(extracted) {
+    const timestamp = Number(extracted.messageTimestamp || 0);
+    if (this.connectTime && timestamp < this.connectTime) return false;
+    return Math.floor(Date.now() / 1000) - timestamp <= 15;
+  }
 
-      // Ignore historical sync messages, messages sent before the bot connected, and messages older than 15 seconds
-      if (isHistory) continue;
-      if (this.connectTime && Number(extracted.messageTimestamp || 0) < this.connectTime) continue;
-      const messageAge = Math.floor(Date.now() / 1000) - Number(extracted.messageTimestamp || 0);
-      if (messageAge > 15) continue;
-
-      const extractionTime = performance.now() - msgStartTime;
-      this.refreshGroupMetadata(extracted.groupId).catch(() => null);
-      const ctx = this.createModeContext();
-      ctx.msgStartTime = msgStartTime;
-      ctx.extractionTime = extractionTime;
-      try {
-        const commandHandled = await handleAdminCommand(extracted, ctx);
-        if (commandHandled) continue;
-        if (this.config.modo === 'watch') {
-          handleWatch(extracted, ctx);
-          continue;
-        }
-        if (this.config.modo === 'ia') await handleIa(extracted, ctx);
-        else handleNormal(extracted, ctx);
-      } catch (err) {
-        this.logger.error('messages', 'Error en modo de bot', { groupId: extracted.groupId, error: err.message });
-      }
+  dispatchMode(mode, extracted, ctx) {
+    const onError = (err) => {
+      this.logger.error('messages', `Error en modo ${mode}`, { groupId: extracted.groupId, error: err.message });
+    };
+    try {
+      if (mode === 'repartidor') handleRepartidor(extracted, ctx);
+      else if (mode === 'normal') handleAdminCommand(extracted, ctx).catch(onError);
+      else if (mode === 'ia') handleIa(extracted, ctx).catch(onError);
+      else if (mode === 'watch') handleWatch(extracted, ctx);
+    } catch (err) {
+      onError(err);
     }
   }
 
@@ -586,8 +670,15 @@ export class BotRuntime {
       ).catch(() => null);
     }
 
-    if (!this.config?.adminCommands?.enabled) return;
     const group = this.groupsById.get(update.id);
+    // Nuevos participantes en un grupo activo del repartidor: dejar listas sus
+    // sesiones para que la siguiente respuesta no tenga que esperarlas.
+    if (this.config?.modo === 'repartidor' && update.action === 'add' && group?.responder) {
+      this.warmUpGroup(update.id).catch(() => null);
+    }
+
+    // Bienvenidas y despedidas forman parte de los comandos (modo normal).
+    if (this.config?.modo !== 'normal' || !this.config?.adminCommands?.enabled) return;
     const settings = normalizeGroupCommandSettings(group?.commandSettings);
     if (!settings.enabled || !['add', 'remove'].includes(update.action)) return;
 
@@ -700,6 +791,8 @@ export class BotRuntime {
     this.isStopping = true;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    clearInterval(this.warmupTimer);
+    this.warmupTimer = null;
     ++this.generation;
     await this.stopSocketOnly();
 
@@ -732,6 +825,9 @@ export class BotRuntime {
     this.isStopping = true;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    clearInterval(this.warmupTimer);
+    this.warmupTimer = null;
+    this.userDevicesCache.flushAll();
     ++this.generation;
     const sock = this.socket;
     this.socket = null;
@@ -757,7 +853,7 @@ export class BotRuntime {
     return {
       status: this.status,
       qr: this.qr || this.config?.qr || null,
-      modo: this.config?.modo || 'normal',
+      modo: this.config?.modo || DEFAULT_MODE,
       activo: !!this.config?.activo,
       respuestas: !!this.config?.respuestas,
       ordenesRecibidas: this.state.ordenesRecibidas,

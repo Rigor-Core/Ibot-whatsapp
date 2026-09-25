@@ -96,3 +96,36 @@ test('el candado de grupos independientes se libera si el grupo deja de ser vál
   assert.equal(runtime.state.independentLockGroupId, null);
   assert.equal(runtime.ownsGroupDocument('doc-1'), false);
 });
+
+test('el repartidor precalienta dispositivos y sesiones de los grupos activos', async () => {
+  const { runtime } = runtimeWithGroups([{ ...baseGroup }, { ...baseGroup, _id: 'doc-2', groupId: '456@g.us', responder: false }]);
+  await runtime.reloadGroups();
+  runtime.groupMetadataCache.set('123@g.us', { participants: [{ id: 'a@lid' }, { id: 'b@lid' }] });
+  runtime.groupMetadataCache.set('456@g.us', { participants: [{ id: 'c@lid' }] });
+  const calls = [];
+  runtime.socket = {
+    getUSyncDevices: async (jids) => { calls.push(['devices', jids]); return jids.map((jid) => ({ jid: jid.replace('@', ':1@') })); },
+    assertSessions: async (jids) => { calls.push(['sessions', jids]); },
+  };
+  runtime.status = 'connected';
+  runtime.config = { modo: 'repartidor' };
+  await runtime.warmUpActiveGroups();
+  assert.deepEqual(calls, [
+    ['devices', ['a@lid', 'b@lid']],
+    ['sessions', ['a:1@lid', 'b:1@lid']],
+  ]);
+
+  calls.length = 0;
+  runtime.config = { modo: 'watch' };
+  await runtime.warmUpActiveGroups();
+  assert.deepEqual(calls, []);
+});
+
+test('solo se procesan mensajes recientes de la sesión actual', () => {
+  const { runtime } = runtimeWithGroups([]);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  runtime.connectTime = nowSeconds - 60;
+  assert.equal(runtime.isLiveMessage({ messageTimestamp: nowSeconds - 2 }), true);
+  assert.equal(runtime.isLiveMessage({ messageTimestamp: nowSeconds - 30 }), false);
+  assert.equal(runtime.isLiveMessage({ messageTimestamp: nowSeconds - 120 }), false);
+});

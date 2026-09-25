@@ -415,16 +415,18 @@
               <label class="field">
                 Modo de Operación
                 <select id="modo">
-                  <option value="normal">Normal (Respuestas)</option>
+                  <option value="repartidor">Repartidor (Respuesta instantánea)</option>
+                  <option value="normal">Normal (Comandos de grupo)</option>
                   <option value="watch">Watch (Monitoreo)</option>
                   <option value="ia">IA (Inteligencia Artificial)</option>
                 </select>
               </label>
               
               <div style="font-size: 13px; color: var(--muted); line-height: 1.4; background: rgba(255,255,255,0.01); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
-                • <strong>Normal</strong>: Responde a grupos según reglas estándar.<br>
-                • <strong>Watch</strong>: Solo monitorea y guarda logs de mensajes.<br>
-                • <strong>IA</strong>: Utiliza DeepSeek para responder de forma inteligente.
+                • <strong>Repartidor</strong>: Responde al instante los pedidos de tus grupos activos.<br>
+                • <strong>Normal</strong>: Solo comandos de grupo, bienvenidas y despedidas.<br>
+                • <strong>Watch</strong>: Solo observa y guarda los mensajes de los grupos.<br>
+                • <strong>IA</strong>: Responde con inteligencia artificial usando el proveedor que elijas.
               </div>
             </div>
           </div>
@@ -439,8 +441,8 @@
           <div>
             <div class="header-row" style="border-bottom-color: rgba(255, 180, 0, 0.1); padding-bottom: 12px; margin-bottom: 16px;">
               <div>
-                <div class="title title-normal">Modo normal rápido</div>
-                <div class="small">Límites y filtros aplicables a la lógica estándar.</div>
+                <div class="title title-normal">Modo repartidor</div>
+                <div class="small">Límites y filtros de las respuestas instantáneas a pedidos.</div>
               </div>
             </div>
             
@@ -459,7 +461,7 @@
           </div>
           
           <div style="font-size: 12.5px; color: var(--muted); margin-top: 24px; line-height: 1.4;">
-            * Estos ajustes controlan la lógica normal rápida sin interferir con el funcionamiento de los grupos independientes.
+            * Estos ajustes controlan las respuestas del modo repartidor sin interferir con el funcionamiento de los grupos independientes. El bot mantiene listos los grupos activos para responder sin demoras.
           </div>
         </section>
 
@@ -467,39 +469,50 @@
         <section class="panel full" style="border: 1px solid rgba(57, 255, 106, 0.2); background: rgba(57, 255, 106, 0.015); margin-top: 8px;">
           <div class="header-row" style="border-bottom-color: rgba(57, 255, 106, 0.1); padding-bottom: 12px; margin-bottom: 16px;">
             <div>
-              <div class="title title-ia">Configuración de Inteligencia Artificial (DeepSeek)</div>
-              <div class="small">Controla la integración del modelo de lenguaje IA, personalidad del bot, cooldowns e instrucciones del sistema.</div>
+              <div class="title title-ia">Configuración de Inteligencia Artificial</div>
+              <div class="small">Elige el proveedor de IA, su personalidad y cómo responde en tus grupos. Se usa cuando el bot está en modo IA.</div>
             </div>
           </div>
 
           <div class="form-grid">
-            <!-- Sub-sección A: Conexión -->
+            <!-- Sub-sección A: Proveedor -->
             <div class="span-12">
-              <div class="section-title-tag" style="color: #39ff6a;">🔌 Conexión y Modelo</div>
+              <div class="section-title-tag" style="color: #39ff6a;">🔌 Proveedor y Modelo</div>
             </div>
 
             <label class="field span-4">
-              Activar IA
-              <select id="iaEnabled">
-                <option value="false">No (Desactivado)</option>
-                <option value="true">Sí (Activado)</option>
-              </select>
+              Proveedor
+              <select id="iaProvider"></select>
             </label>
-            
+
             <label class="field span-4">
-              Modelo LLM
-              <input id="iaModel" placeholder="deepseek-chat">
+              Modelo
+              <input id="iaModel" list="iaModelOptions" placeholder="deepseek-chat">
+              <datalist id="iaModelOptions"></datalist>
             </label>
-            
-            <label class="field span-4">
-              Base URL de API
-              <input id="iaBaseUrl" placeholder="https://dipisik.rigorcore.com/v1">
+
+            <label class="field span-4" id="iaProfileField">
+              Profile de Dipisik
+              <input id="iaProfile" placeholder="whatsapp" maxlength="40">
             </label>
-            
-            <label class="field span-12">
-              API Key (Contraseña de API)
-              <input id="iaApiKey" type="password" placeholder="•••••••• (Dejar vacío para conservar)">
+
+            <label class="field span-12" id="iaBaseUrlField">
+              URL base (compatible con OpenAI)
+              <input id="iaBaseUrl" placeholder="http://localhost:11434/v1">
             </label>
+
+            <div class="span-12 small" id="iaProviderInfo" style="line-height: 1.4;"></div>
+
+            <label class="field span-8">
+              API Key del proveedor
+              <input id="iaApiKey" type="password" autocomplete="new-password" placeholder="Dejar vacío para conservar la actual">
+            </label>
+
+            <div class="span-4" style="display: flex; align-items: flex-end;">
+              <label class="switch-field" style="width: 100%;">
+                <input type="checkbox" id="iaClearApiKey"> Borrar la clave guardada
+              </label>
+            </div>
 
             <!-- Separador -->
             <div class="span-12"><hr class="section-separator" /></div>
@@ -516,12 +529,27 @@
             
             <label class="field span-4">
               Max Tokens (Largo respuesta)
-              <input id="iaMaxTokens" type="number" min="50" placeholder="500">
+              <input id="iaMaxTokens" type="number" min="16" max="8192" placeholder="500">
+            </label>
+
+            <label class="field span-4">
+              Tiempo máximo de espera (segundos)
+              <input id="iaTimeout" type="number" min="3" max="120" placeholder="20">
+            </label>
+
+            <label class="field span-4">
+              Memoria (mensajes previos por grupo)
+              <input id="iaHistoryLimit" type="number" min="0" max="30" placeholder="8">
             </label>
             
             <label class="field span-4">
               Cooldown por grupo (ms)
               <input id="iaCooldown" type="number" min="0" placeholder="3000">
+            </label>
+
+            <label class="field span-4">
+              Largo máximo de respuesta (0 = sin límite)
+              <input id="iaMaxReplyChars" type="number" min="0" max="20000" placeholder="0">
             </label>
 
             <!-- Separador -->
@@ -553,12 +581,38 @@
               <label class="switch-field" style="flex: 1; min-width: 240px;">
                 <input type="checkbox" id="iaIgnoreMedia"> Ignorar multimedia sin texto
               </label>
+              <label class="switch-field" style="flex: 1; min-width: 240px;">
+                <input type="checkbox" id="iaIgnoreOwn"> Ignorar mis propios mensajes
+              </label>
             </div>
 
             <!-- Separador -->
             <div class="span-12"><hr class="section-separator" /></div>
 
-            <!-- Sub-sección D: Prompting -->
+            <!-- Sub-sección D: Estilo de respuesta -->
+            <div class="span-12">
+              <div class="section-title-tag" style="color: #c889ff;">💬 Estilo de Respuesta</div>
+            </div>
+
+            <div class="span-12" style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <label class="switch-field" style="flex: 1; min-width: 240px;">
+                <input type="checkbox" id="iaReplyQuoted"> Citar el mensaje original
+              </label>
+              <label class="switch-field" style="flex: 1; min-width: 240px;">
+                <input type="checkbox" id="iaMentionSender"> Mencionar a quien preguntó
+              </label>
+              <label class="switch-field" style="flex: 1; min-width: 240px;">
+                <input type="checkbox" id="iaShowTyping"> Mostrar "escribiendo…"
+              </label>
+              <label class="switch-field" style="flex: 1; min-width: 240px;">
+                <input type="checkbox" id="iaIncludeSender"> Decirle a la IA quién escribe
+              </label>
+            </div>
+
+            <!-- Separador -->
+            <div class="span-12"><hr class="section-separator" /></div>
+
+            <!-- Sub-sección E: Prompting -->
             <div class="span-12">
               <div class="section-title-tag" style="color: #fff;">📝 Instrucciones de Comportamiento</div>
             </div>
@@ -569,12 +623,33 @@
             </label>
             
             <label class="field span-12">
-              Mensaje Fallback (Texto alternativo si falla la API)
+              Mensaje Fallback (Texto si falla la IA; vacío = no responder)
               <textarea id="iaFallback" placeholder="Lo siento, en este momento el bot de IA no está disponible..." style="min-height: 60px; resize: vertical;"></textarea>
             </label>
+
+            <!-- Separador -->
+            <div class="span-12"><hr class="section-separator" /></div>
+
+            <!-- Sub-sección F: Prueba -->
+            <div class="span-12">
+              <div class="section-title-tag" style="color: #39ff6a;">🧪 Probar la IA</div>
+            </div>
+
+            <label class="field span-12">
+              Mensaje de prueba (se guarda la configuración y se envía a la IA, sin pasar por WhatsApp)
+              <textarea id="iaTestPrompt" placeholder="Ej: Hola, ¿qué puedes hacer?" style="min-height: 60px; resize: vertical;"></textarea>
+            </label>
+
+            <div class="span-12" id="iaTestResult" style="display: none; font-size: 13px; line-height: 1.5; white-space: pre-wrap; background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(57,255,106,0.15);"></div>
           </div>
 
-          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 24px; display: flex; justify-content: flex-end;">
+          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <button id="iaResetMemory" class="btn util" type="button" style="padding: 10px 24px; font-weight: 800; border-radius: 10px;">
+              Reiniciar memoria
+            </button>
+            <button id="iaTest" class="btn util" type="button" style="padding: 10px 24px; font-weight: 800; border-radius: 10px;">
+              Probar IA
+            </button>
             <button id="saveAll" class="btn" type="button" style="padding: 10px 32px; font-weight: 800; border-radius: 10px; background: linear-gradient(135deg, #39ff6a 0%, #00c850 100%); color: #000; box-shadow: 0 0 15px rgba(57,255,106,0.3); border: none;">
               Guardar Configuración Completa
             </button>

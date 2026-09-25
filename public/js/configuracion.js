@@ -1,32 +1,69 @@
 let current = null;
+let iaProviders = [];
+
+function selectedProvider() {
+  return iaProviders.find((provider) => provider.id === $('#iaProvider').value) || iaProviders[0];
+}
+
+// Muestra solo los campos que aplican al proveedor elegido.
+function syncIaProviderFields() {
+  const provider = selectedProvider();
+  if (!provider) return;
+  $('#iaModelOptions').innerHTML = provider.models.map((model) => `<option value="${escapeHtml(model)}">`).join('');
+  $('#iaProfileField').style.display = provider.supportsProfile ? '' : 'none';
+  $('#iaBaseUrlField').style.display = provider.id === 'custom' ? '' : 'none';
+  const keySet = !!current?.ia?.apiKeysSet?.[provider.id];
+  const keyInfo = keySet
+    ? 'Tienes una clave guardada para este proveedor.'
+    : provider.sharedKeyAvailable
+      ? 'No necesitas clave: se usa la del sistema. Puedes escribir la tuya si prefieres.'
+      : provider.id === 'custom'
+        ? 'La clave es opcional si tu servicio no la pide.'
+        : 'Necesitas escribir tu API key de este proveedor.';
+  $('#iaProviderInfo').textContent = `${provider.description} ${keyInfo}`;
+  $('#iaApiKey').placeholder = keySet ? '•••••••• (Dejar vacío para conservar)' : 'Pega aquí tu API key';
+  $('#iaClearApiKey').checked = false;
+  $('#iaClearApiKey').closest('.span-4').style.display = keySet ? '' : 'none';
+}
 
 async function load() {
-  bindPanelLogout();
-  await loadUserBot();
-  current = await IbotApi.config();
-  $('#modo').value = current.modo || 'normal';
+  const [config, catalog] = await Promise.all([IbotApi.config(), IbotApi.iaProviders()]);
+  current = config;
+  iaProviders = catalog.providers;
+  $('#modo').value = current.modo || 'repartidor';
   
   const respEl = $('#respuestas');
   if (respEl) respEl.checked = !!current.respuestas;
 
-  $('#globalLimit').value = current.normal?.globalLimit ?? 1;
-  $('#filterEnabled').checked = current.normal?.filterEnabled !== false;
+  $('#globalLimit').value = current.repartidor?.globalLimit ?? 1;
+  $('#filterEnabled').checked = current.repartidor?.filterEnabled !== false;
   $('#timezone').value = current.timezone || 'America/Hermosillo';
   
-  const ia = current.ia || {};
-  $('#iaEnabled').value = String(ia.enabled === true);
-  $('#iaModel').value = ia.model || 'deepseek-chat';
-  $('#iaBaseUrl').value = ia.baseUrl || 'https://dipisik.rigorcore.com/v1';
+  const ia = { ...catalog.defaults, ...(current.ia || {}) };
+  $('#iaProvider').innerHTML = iaProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name)}</option>`).join('');
+  $('#iaProvider').value = iaProviders.some((provider) => provider.id === ia.provider) ? ia.provider : iaProviders[0]?.id;
+  $('#iaModel').value = ia.model || '';
+  $('#iaProfile').value = ia.profile || 'whatsapp';
+  $('#iaBaseUrl').value = ia.baseUrl || '';
   $('#iaApiKey').value = '';
-  $('#iaTemperature').value = ia.temperature ?? 0.6;
-  $('#iaMaxTokens').value = ia.maxTokens ?? 500;
-  $('#iaCommandMode').value = ia.commandMode || 'required';
-  $('#iaCommands').value = (ia.commands || ['/chat', '/gpt']).join(',');
-  $('#iaCooldown').value = ia.perGroupCooldownMs ?? 3000;
+  $('#iaTemperature').value = ia.temperature;
+  $('#iaMaxTokens').value = ia.maxTokens;
+  $('#iaTimeout').value = Math.round(ia.timeoutMs / 1000);
+  $('#iaHistoryLimit').value = ia.historyLimit;
+  $('#iaCooldown').value = ia.perGroupCooldownMs;
+  $('#iaMaxReplyChars').value = ia.maxReplyChars;
+  $('#iaCommandMode').value = ia.commandMode;
+  $('#iaCommands').value = ia.commands.join(',');
   $('#iaSystemPrompt').value = ia.systemPrompt || '';
   $('#iaFallback').value = ia.fallbackText || '';
-  $('#iaOnlyConfigured').checked = ia.onlyConfiguredGroups !== false;
-  $('#iaIgnoreMedia').checked = ia.ignoreMedia !== false;
+  $('#iaOnlyConfigured').checked = ia.onlyConfiguredGroups;
+  $('#iaIgnoreMedia').checked = ia.ignoreMedia;
+  $('#iaIgnoreOwn').checked = ia.ignoreOwnMessages;
+  $('#iaReplyQuoted').checked = ia.replyQuoted;
+  $('#iaMentionSender').checked = ia.mentionSender;
+  $('#iaShowTyping').checked = ia.showTyping;
+  $('#iaIncludeSender').checked = ia.includeSenderName;
+  syncIaProviderFields();
 
   // Populate groups dropdown for connection notifications
   const userGroups = await IbotApi.groups().catch(() => []);
@@ -46,23 +83,33 @@ async function load() {
 }
 
 function payload() {
-  const apiKey = $('#iaApiKey').value.trim();
+  const provider = $('#iaProvider').value;
   const ia = {
-    enabled: $('#iaEnabled').value === 'true',
-    provider: 'deepseek-compatible',
-    model: $('#iaModel').value.trim() || 'deepseek-chat',
-    baseUrl: $('#iaBaseUrl').value.trim() || 'https://dipisik.rigorcore.com/v1',
+    provider,
+    model: $('#iaModel').value.trim(),
+    profile: $('#iaProfile').value.trim() || 'whatsapp',
+    baseUrl: provider === 'custom' ? $('#iaBaseUrl').value.trim() : '',
     temperature: Number($('#iaTemperature').value || 0.6),
     maxTokens: Number($('#iaMaxTokens').value || 500),
+    timeoutMs: Number($('#iaTimeout').value || 20) * 1000,
+    historyLimit: Number($('#iaHistoryLimit').value || 0),
+    perGroupCooldownMs: Number($('#iaCooldown').value || 0),
+    maxReplyChars: Number($('#iaMaxReplyChars').value || 0),
     commandMode: $('#iaCommandMode').value,
     commands: $('#iaCommands').value.split(',').map((s) => s.trim()).filter(Boolean),
-    perGroupCooldownMs: Number($('#iaCooldown').value || 0),
     systemPrompt: $('#iaSystemPrompt').value,
     fallbackText: $('#iaFallback').value,
     onlyConfiguredGroups: $('#iaOnlyConfigured').checked,
     ignoreMedia: $('#iaIgnoreMedia').checked,
+    ignoreOwnMessages: $('#iaIgnoreOwn').checked,
+    replyQuoted: $('#iaReplyQuoted').checked,
+    mentionSender: $('#iaMentionSender').checked,
+    showTyping: $('#iaShowTyping').checked,
+    includeSenderName: $('#iaIncludeSender').checked,
   };
+  const apiKey = $('#iaApiKey').value.trim();
   if (apiKey) ia.apiKey = apiKey;
+  if ($('#iaClearApiKey').checked) ia.clearApiKey = true;
 
   const respEl = $('#respuestas');
   const respuestasVal = respEl ? respEl.checked : (current ? !!current.respuestas : false);
@@ -76,10 +123,10 @@ function payload() {
   return { 
     modo: $('#modo').value, 
     respuestas: respuestasVal, 
-    normal: { 
-      globalLimit: Number($('#globalLimit').value || 0), 
-      filterEnabled: $('#filterEnabled').checked 
-    }, 
+    repartidor: {
+      globalLimit: Number($('#globalLimit').value || 0),
+      filterEnabled: $('#filterEnabled').checked,
+    },
     ia,
     connectionNotification,
     timezone: $('#timezone').value,
@@ -101,6 +148,45 @@ if (saveMain) saveMain.onclick = save;
 
 const saveAll = $('#saveAll');
 if (saveAll) saveAll.onclick = save;
+
+$('#iaProvider').onchange = () => {
+  const provider = selectedProvider();
+  // Al cambiar de proveedor se propone su primer modelo.
+  if (provider && !provider.models.includes($('#iaModel').value)) $('#iaModel').value = provider.models[0] || '';
+  syncIaProviderFields();
+};
+
+$('#iaTest').onclick = async () => {
+  const prompt = $('#iaTestPrompt').value.trim();
+  if (!prompt) {
+    toast('⚠️ Escribe un mensaje de prueba.');
+    return;
+  }
+  const btn = $('#iaTest');
+  const result = $('#iaTestResult');
+  btn.disabled = true;
+  result.style.display = 'block';
+  result.textContent = 'Guardando y consultando a la IA...';
+  try {
+    await IbotApi.saveConfig(payload());
+    await load();
+    const test = await IbotApi.testIa(prompt);
+    result.textContent = `✅ ${test.model} · ${test.ms} ms\n\n${test.answer || '(respuesta vacía)'}`;
+  } catch (e) {
+    result.textContent = `❌ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('#iaResetMemory').onclick = async () => {
+  try {
+    await IbotApi.resetIaMemory();
+    toast('Memoria de la IA reiniciada');
+  } catch (e) {
+    toast(e.message);
+  }
+};
 
 const saveConnNotify = $('#saveConnNotify');
 if (saveConnNotify) saveConnNotify.onclick = save;
@@ -436,4 +522,5 @@ if (resetOrderBtn) {
   });
 }
 
-load();
+bindPanelLogout();
+loadUserBot().then(load).catch((e) => toast(e.message));

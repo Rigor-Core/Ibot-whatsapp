@@ -2,6 +2,8 @@ import { DEFAULT_TIMEZONE } from '../core/utils.js';
 import { isValidTimeZone } from './message-scheduler.js';
 
 const SETTINGS_ID = 'panel';
+const CACHE_TTL_MS = 10000;
+let cached = null;
 
 function envPublicRegistration() {
   return String(process.env.PANEL_ALLOW_PUBLIC_REGISTRATION || 'false').toLowerCase() === 'true';
@@ -14,13 +16,28 @@ export async function getSystemSettings(collections) {
     publicRegistration: typeof doc?.publicRegistration === 'boolean' ? doc.publicRegistration : envPublicRegistration(),
     defaultTimezone: isValidTimeZone(doc?.defaultTimezone) ? doc.defaultTimezone : DEFAULT_TIMEZONE,
     maxUsers: Number.isInteger(doc?.maxUsers) && doc.maxUsers > 0 ? doc.maxUsers : 0,
+    // Los usuarios pueden usar Dipisik con la clave del servidor (DIPISIK_API_KEY).
+    aiSharedDipisik: doc?.aiSharedDipisik !== false,
+    // Endpoints de IA personalizados: el servidor haría peticiones a URLs que
+    // elige el usuario, por eso vienen desactivados por defecto.
+    aiAllowCustomEndpoints: doc?.aiAllowCustomEndpoints === true,
     updatedAt: doc?.updatedAt || null,
   };
+}
+
+// Versión con caché corta para rutas calientes (por ejemplo, cada mensaje del modo IA).
+export async function getSystemSettingsCached(collections) {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+  const value = await getSystemSettings(collections);
+  cached = { value, at: Date.now() };
+  return value;
 }
 
 export async function updateSystemSettings(collections, patch = {}) {
   const set = {};
   if (patch.publicRegistration !== undefined) set.publicRegistration = patch.publicRegistration === true;
+  if (patch.aiSharedDipisik !== undefined) set.aiSharedDipisik = patch.aiSharedDipisik === true;
+  if (patch.aiAllowCustomEndpoints !== undefined) set.aiAllowCustomEndpoints = patch.aiAllowCustomEndpoints === true;
   if (patch.defaultTimezone !== undefined) {
     const timezone = String(patch.defaultTimezone || '').trim();
     if (!isValidTimeZone(timezone)) throw new Error('Zona horaria inválida');
@@ -39,6 +56,7 @@ export async function updateSystemSettings(collections, patch = {}) {
       { $set: { ...set, updatedAt: new Date() } },
       { upsert: true },
     );
+    cached = null;
   }
   return getSystemSettings(collections);
 }

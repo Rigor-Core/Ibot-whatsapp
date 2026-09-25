@@ -10,6 +10,31 @@ import { normalizeAdminCommandsConfig } from '../services/admin-command-service.
 import { isValidTimeZone } from '../services/message-scheduler.js';
 import { publicSafeAccount, publicSafeConfig, now } from '../core/utils.js';
 import { requireAccountUser } from './auth.middleware.js';
+import { BOT_MODES } from '../bot/bot-runtime.js';
+import {
+  IA_DEFAULTS,
+  askIa,
+  ensureDipisikProfile,
+  mergeIaUpdate,
+  normalizeIaConfig,
+  publicIaConfig,
+  publicProviderCatalog,
+} from '../services/ai-providers.js';
+import { getSystemSettingsCached } from '../services/settings-service.js';
+
+function publicConfig(config) {
+  return { ...publicSafeConfig(config), ia: publicIaConfig(config?.ia) };
+}
+
+function repartidorSettings(current = {}, body = {}) {
+  const merged = { ...current, ...body };
+  const globalLimit = Number(merged.globalLimit ?? 1);
+  return {
+    globalLimit: Number.isInteger(globalLimit) && globalLimit >= 0 ? globalLimit : 1,
+    filterEnabled: merged.filterEnabled !== false,
+    ignoreOwnMessages: merged.ignoreOwnMessages !== false,
+  };
+}
 
 export function createMainRouter({ collections, registry, scheduler }) {
   const router = Router();
@@ -60,7 +85,7 @@ export function createMainRouter({ collections, registry, scheduler }) {
   router.get('/api/bot/config', async (req, res) => {
     const accountId = resolveAccountId(req);
     const config = await getConfig(collections, accountId) || defaultBotConfig(accountId);
-    res.json(publicSafeConfig(config));
+    res.json(publicConfig(config));
   });
 
   router.put('/api/bot/config', async (req, res) => {
@@ -70,18 +95,17 @@ export function createMainRouter({ collections, registry, scheduler }) {
       const body = req.body || {};
       const set = { updatedAt: now() };
       if (body.modo !== undefined) {
-        if (!['normal', 'watch', 'ia'].includes(body.modo)) return res.status(400).json({ error: 'Modo inválido' });
+        if (!BOT_MODES.includes(body.modo)) return res.status(400).json({ error: 'Modo inválido' });
         set.modo = body.modo;
       }
       if (body.respuestas !== undefined) set.respuestas = !!body.respuestas;
       if (body.activo !== undefined) set.activo = !!body.activo;
-      if (body.normal) set.normal = { ...current.normal, ...body.normal };
+      if (body.repartidor) set.repartidor = repartidorSettings(current.repartidor, body.repartidor);
       if (body.ia) {
-        const ia = { ...current.ia, ...body.ia };
-        if (String(ia.apiKey || '').includes('*')) ia.apiKey = current.ia?.apiKey || '';
-        ia.commands = Array.isArray(ia.commands) ? ia.commands.map((c) => String(c).trim()).filter(Boolean) : ['/chat'];
-        if (!['all', 'required', 'optional'].includes(ia.commandMode)) ia.commandMode = 'required';
-        set.ia = ia;
+        set.ia = mergeIaUpdate(current.ia, body.ia);
+        if (set.ia.provider === 'custom' && !(await getSystemSettingsCached(collections)).aiAllowCustomEndpoints) {
+          return res.status(400).json({ error: 'El administrador no permite endpoints de IA personalizados' });
+        }
       }
       if (body.connectionNotification) {
         set.connectionNotification = {
@@ -101,11 +125,48 @@ export function createMainRouter({ collections, registry, scheduler }) {
       await collections.configs.updateOne({ accountId }, { $set: set }, { upsert: true });
       const runtime = await registry.get(accountId);
       await runtime.reloadConfig();
+      if (set.ia) {
+        // Deja listo el profile de Dipisik antes del primer mensaje (no bloquea el guardado).
+        getSystemSettingsCached(collections)
+          .then((settings) => ensureDipisikProfile(runtime.config.ia, settings))
+          .catch((err) => runtime.logger.warn('ia', 'No se pudo preparar el profile de Dipisik', { error: err.message }));
+      }
       const updated = await getConfig(collections, accountId);
-      res.json(publicSafeConfig(updated));
+      res.json(publicConfig(updated));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  // ─── Modo IA ───────────────────────────────────────────────────────────
+  router.get('/api/bot/ia/providers', async (req, res) => {
+    const settings = await getSystemSettingsCached(collections);
+    res.json({ providers: publicProviderCatalog(settings), defaults: publicIaConfig(IA_DEFAULTS) });
+  });
+
+  // Prueba la configuración guardada con un mensaje, sin pasar por WhatsApp.
+  router.post('/api/bot/ia/test', async (req, res) => {
+    try {
+      const prompt = String(req.body?.prompt || '').trim().slice(0, 2000);
+      if (!prompt) return res.status(400).json({ error: 'Escribe un mensaje de prueba' });
+      const runtime = await registry.get(resolveAccountId(req));
+      const ia = normalizeIaConfig(runtime.config?.ia);
+      const settings = await getSystemSettingsCached(collections);
+      const started = performance.now();
+      const answer = await askIa(ia, settings, [
+        ...(ia.systemPrompt ? [{ role: 'system', content: ia.systemPrompt }] : []),
+        { role: 'user', content: prompt },
+      ]);
+      res.json({ answer, ms: Math.round(performance.now() - started), provider: ia.provider, model: ia.model });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/bot/ia/reset-memory', async (req, res) => {
+    const runtime = await registry.get(resolveAccountId(req));
+    runtime.aiMemory.clear();
+    res.json({ ok: true });
   });
 
   router.post('/api/bot/config/conn-notification/test', async (req, res) => {
@@ -153,7 +214,7 @@ export function createMainRouter({ collections, registry, scheduler }) {
       const runtime = await registry.get(accountId);
       await runtime.reloadConfig();
       const updated = await getConfig(collections, accountId);
-      res.json(publicSafeConfig(updated));
+      res.json(publicConfig(updated));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

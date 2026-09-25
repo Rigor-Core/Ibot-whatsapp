@@ -20,7 +20,7 @@
     failed: { label: 'Fallidos', cls: 'critical', color: 'var(--critical)' },
     cancelled: { label: 'Cancelados', cls: '', color: 'var(--muted)' },
   };
-  const MODES = { normal: 'Normal', watch: 'Watch', ia: 'IA' };
+  const MODES = { repartidor: 'Repartidor', normal: 'Normal (comandos)', watch: 'Watch', ia: 'IA' };
   const RUNNING = ['connected', 'connecting', 'qr', 'starting', 'reconnecting'];
 
   const api = {
@@ -570,6 +570,8 @@
       if (!$('#settingsForm').contains(document.activeElement)) {
         $('#setPublicRegistration').checked = settings.publicRegistration;
         $('#setMaxUsers').value = settings.maxUsers;
+        $('#setAiShared').checked = settings.aiSharedDipisik;
+        $('#setAiCustom').checked = settings.aiAllowCustomEndpoints;
         fillTimezones(settings.defaultTimezone);
       }
       const syncLabels = { 'change-streams': 'Tiempo real (change streams)', polling: 'Polling cada 5 s', idle: 'Sin cuentas cargadas' };
@@ -586,7 +588,7 @@
         infoRow('Secreto de sesión persistente', check(system.persistentSecret, 'Configurado', 'Falta PANEL_SECRET')),
         infoRow('Cookies seguras (HTTPS)', check(system.secureCookies, 'Activadas', 'Desactivadas')),
         infoRow('Autenticación del panel', check(system.panelAuthEnabled, 'Activada', 'Desactivada')),
-        infoRow('Clave DeepSeek (modo IA)', check(system.deepseekKeyConfigured, 'Configurada', 'No configurada')),
+        infoRow('Clave de Dipisik (modo IA)', check(system.dipisikKeyConfigured, 'Configurada', 'No configurada')),
       ].join('');
     } catch (error) {
       toast(error.message);
@@ -599,6 +601,8 @@
       publicRegistration: $('#setPublicRegistration').checked,
       defaultTimezone: $('#setTimezone').value,
       maxUsers: Number($('#setMaxUsers').value || 0),
+      aiSharedDipisik: $('#setAiShared').checked,
+      aiAllowCustomEndpoints: $('#setAiCustom').checked,
     }));
     if (ok) {
       toast('Ajustes guardados');

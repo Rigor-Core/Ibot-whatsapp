@@ -14,7 +14,11 @@ Cada rol es redirigido a su propio panel y la API lo respeta: `/api/bot/*` es so
 ## Funciones
 
 - Cuenta por usuario con su propio WhatsApp vinculado (se crea automáticamente la primera vez que el usuario entra a su panel).
-- Modos principales independientes: `normal`, `watch` e `ia` con API compatible con DeepSeek.
+- Modos principales (exclusivos):
+  - `repartidor`: responde al instante los pedidos de los grupos activos. Mantiene en caché los dispositivos de los participantes y precalienta las sesiones de cifrado para que la primera respuesta tras un rato sin actividad no espere consultas a WhatsApp.
+  - `normal`: solo comandos de grupo, bienvenidas y despedidas.
+  - `watch`: solo observa y guarda los mensajes de los grupos.
+  - `ia`: responde con IA. Proveedores: Dipisik (con profile dedicado), DeepSeek, OpenAI, Z.ai, Gemini, Groq, OpenRouter y, si el administrador lo permite, cualquier endpoint compatible con OpenAI. Las claves de los usuarios se guardan cifradas.
 - Gestión y monitoreo de grupos.
 - Directorio de contactos agrupado por grupo y contactos externos de Watch.
 - Mensajes programados persistentes con zona horaria configurable.
@@ -41,9 +45,8 @@ PANEL_ALLOW_PUBLIC_REGISTRATION=false
 PANEL_SECRET=cambia_este_secreto
 COOKIE_SECURE=false
 NODE_ENV=development
-DEEPSEEK_API_KEY=
-DEEPSEEK_BASE_URL=https://dipisik.rigorcore.com/v1
-DEEPSEEK_MODEL=deepseek-chat
+DIPISIK_API_KEY=
+DIPISIK_BASE_URL=https://dipisik.rigorcore.com/v1
 ```
 
 `PANEL_ALLOW_PUBLIC_REGISTRATION` es solo el valor inicial: el administrador puede abrir o cerrar el registro público desde **Configuración** en su panel, junto con la zona horaria predeterminada y el límite de usuarios.
@@ -69,7 +72,7 @@ pnpm start
 
 Los comandos y los eventos de bienvenida/despedida son independientes del modo principal. Si el sistema global de comandos o el comando del grupo está desactivado, también quedan desactivados los mensajes de bienvenida y despedida de ese grupo.
 
-Para usar el modo IA, configura `DEEPSEEK_API_KEY` en el entorno o ingresa la clave desde Configuración. El endpoint predeterminado usa `deepseek-chat`; también admite `deepseek-search` y `deepseek-reasoner`.
+Para el modo IA con Dipisik configura `DIPISIK_API_KEY` (y opcionalmente `DIPISIK_BASE_URL`, por ejemplo `http://127.0.0.1:9040/v1` si corre en el mismo VPS) en el `.env` del servidor; nunca en el repositorio. El administrador decide si los usuarios pueden usar esa clave compartida. Para los demás proveedores cada usuario escribe su propia API key en Configuración. Modelos de Dipisik: `deepseek-chat`, `deepseek-reasoner` y `deepseek-search`.
 
 ## Cuentas de WhatsApp sin dueño
 
