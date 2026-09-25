@@ -15,7 +15,6 @@
     "test": "node --test",
     "audit": "pnpm audit --audit-level moderate",
     "install:secure": "pnpm install --frozen-lockfile",
-    "migrate:v1": "node scripts/migrate-v1-to-v2.js",
     "create:admin": "node scripts/create-admin.js"
   },
   "keywords": [
@@ -34,7 +33,8 @@
     "express-rate-limit": "^8.5.2",
     "mongodb": "7.2.0",
     "qrcode": "1.5.4",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

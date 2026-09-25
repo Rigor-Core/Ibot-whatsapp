@@ -213,6 +213,16 @@ export class MessageScheduler {
     } catch (error) {
       const attempts = Number(job.attempts || 1);
       const canRetry = attempts < 5;
+      if (!canRetry) {
+        this.registry.eventBus.emit('notify', {
+          accountId: job.accountId,
+          type: 'scheduledFailed',
+          title: 'Mensaje programado no enviado',
+          body: `No se pudo enviar a ${job.target?.name || job.target?.jid}: ${error.message}`,
+          tag: `scheduled-${job._id}`,
+          url: '/contactos.html',
+        });
+      }
       await this.collections.scheduledMessages.updateOne(
         { _id: job._id, status: 'processing' },
         {

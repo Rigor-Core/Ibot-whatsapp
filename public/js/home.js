@@ -215,4 +215,6 @@ async function pollStatus() {
 
 bindHome();
 loadHome();
+// El estado llega al instante por el canal en vivo; el sondeo queda de respaldo.
+subscribeLive(({ status }) => setStatusUI(status));
 setInterval(pollStatus, 30000);

@@ -12,6 +12,7 @@ import { createAuthRouter, homePathFor, requirePanelAuth, routePagesByRole } fro
 import { createAdminRouter } from './src/routes/admin.routes.js';
 import rateLimit from 'express-rate-limit';
 import { MessageScheduler } from './src/services/message-scheduler.js';
+import { PushService } from './src/services/push-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,9 +80,17 @@ await runDataMigrations(collections);
 const registry = new RuntimeRegistry({ collections });
 const scheduler = new MessageScheduler({ collections, registry });
 scheduler.start();
+const push = new PushService({ collections, eventBus: registry.eventBus });
+await push.init();
 
 app.get('/api/health', (req, res) => res.json({ ok: true, version: APP_VERSION }));
 app.use('/css', express.static(path.join(publicDir, 'css')));
+// Archivos de la app instalable y de las notificaciones: los navegadores los piden sin sesión.
+app.use('/icons', express.static(path.join(publicDir, 'icons')));
+app.get('/manifest.webmanifest', (req, res) => {
+  res.type('application/manifest+json').sendFile(path.join(publicDir, 'manifest.webmanifest'));
+});
+app.get('/sw.js', (req, res) => res.sendFile(path.join(publicDir, 'sw.js')));
 app.get('/js/auth.js', (req, res) => res.sendFile(path.join(publicDir, 'js', 'auth.js')));
 app.use(createAuthRouter({ collections }));
 app.get('/login.html', (req, res) => res.sendFile(path.join(publicDir, 'login.html')));
@@ -91,7 +100,7 @@ app.use(requirePanelAuth({ collections }));
 app.use(routePagesByRole);
 app.use(express.static(publicDir, { extensions: ['html'] }));
 app.use(createAdminRouter({ collections, registry, scheduler }));
-app.use(createMainRouter({ collections, registry, scheduler }));
+app.use(createMainRouter({ collections, registry, scheduler, push }));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 

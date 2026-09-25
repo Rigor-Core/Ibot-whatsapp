@@ -40,12 +40,19 @@ export default [
         escapeHtml: 'readonly',
         toast: 'readonly',
         loadUserBot: 'readonly',
-        bindPanelLogout: 'readonly'
+        bindPanelLogout: 'readonly',
+        subscribeLive: 'readonly',
+        create: 'readonly',
+        Notification: 'readonly'
       }
     },
     rules: {
       'no-unused-vars': ['warn', { 'argsIgnorePattern': '^_|^req$|^res$|^next$' }],
       'no-empty': 'warn',
     }
-  }
+  },
+  {
+    files: ['public/sw.js'],
+    languageOptions: { sourceType: 'script', globals: { self: 'readonly' } },
+  },
 ];

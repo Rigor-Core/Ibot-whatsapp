@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Ibot — Configuración</title>
   <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#030406" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <style>
     /* Estilos específicos de Configuración */
     :root {
@@ -485,16 +488,12 @@
               <select id="iaProvider"></select>
             </label>
 
-            <label class="field span-4">
+            <label class="field span-8">
               Modelo
               <input id="iaModel" list="iaModelOptions" placeholder="deepseek-chat">
               <datalist id="iaModelOptions"></datalist>
             </label>
 
-            <label class="field span-4" id="iaProfileField">
-              Profile de Dipisik
-              <input id="iaProfile" placeholder="whatsapp" maxlength="40">
-            </label>
 
             <label class="field span-12" id="iaBaseUrlField">
               URL base (compatible con OpenAI)
@@ -561,17 +560,23 @@
             </div>
 
             <label class="field span-4">
-              Modo Comando
-              <select id="iaCommandMode">
-                <option value="required">Requiere comando</option>
-                <option value="all">Responder a todo</option>
-                <option value="optional">Comando opcional</option>
+              ¿Cuándo responde la IA?
+              <select id="iaTriggerMode">
+                <option value="off">Desactivada (no responde)</option>
+                <option value="all">A todos los mensajes</option>
+                <option value="command">Solo con un comando</option>
+                <option value="keyword">Cuando el mensaje contiene un texto</option>
               </select>
             </label>
             
-            <label class="field span-8">
-              Comandos disparadores (separados por coma)
+            <label class="field span-8" id="iaCommandsField">
+              Comandos (separados por coma). Ej: <em>/chat ¿qué hora es?</em>
               <input id="iaCommands" placeholder="/chat,/gpt">
+            </label>
+
+            <label class="field span-8" id="iaKeywordsField">
+              Textos que activan la IA (separados por coma)
+              <input id="iaKeywords" placeholder="bot,ayuda,precio">
             </label>
 
             <div class="span-12" style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px;">
@@ -627,28 +632,11 @@
               <textarea id="iaFallback" placeholder="Lo siento, en este momento el bot de IA no está disponible..." style="min-height: 60px; resize: vertical;"></textarea>
             </label>
 
-            <!-- Separador -->
-            <div class="span-12"><hr class="section-separator" /></div>
-
-            <!-- Sub-sección F: Prueba -->
-            <div class="span-12">
-              <div class="section-title-tag" style="color: #39ff6a;">🧪 Probar la IA</div>
-            </div>
-
-            <label class="field span-12">
-              Mensaje de prueba (se guarda la configuración y se envía a la IA, sin pasar por WhatsApp)
-              <textarea id="iaTestPrompt" placeholder="Ej: Hola, ¿qué puedes hacer?" style="min-height: 60px; resize: vertical;"></textarea>
-            </label>
-
-            <div class="span-12" id="iaTestResult" style="display: none; font-size: 13px; line-height: 1.5; white-space: pre-wrap; background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(57,255,106,0.15);"></div>
           </div>
 
           <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px; align-items: center; flex-wrap: wrap;">
             <button id="iaResetMemory" class="btn util" type="button" style="padding: 10px 24px; font-weight: 800; border-radius: 10px;">
               Reiniciar memoria
-            </button>
-            <button id="iaTest" class="btn util" type="button" style="padding: 10px 24px; font-weight: 800; border-radius: 10px;">
-              Probar IA
             </button>
             <button id="saveAll" class="btn" type="button" style="padding: 10px 32px; font-weight: 800; border-radius: 10px; background: linear-gradient(135deg, #39ff6a 0%, #00c850 100%); color: #000; box-shadow: 0 0 15px rgba(57,255,106,0.3); border: none;">
               Guardar Configuración Completa
@@ -691,6 +679,30 @@
             </button>
             <button id="saveConnNotify" class="btn" type="button" style="padding: 10px 32px; font-weight: 800; border-radius: 10px; background: linear-gradient(135deg, var(--accent) 0%, #0088ff 100%); color: #000; box-shadow: 0 0 15px var(--accent-glow); border: none;">
               Guardar Notificación
+            </button>
+          </div>
+        </section>
+
+        <!-- CARD: NOTIFICACIONES PUSH -->
+        <section class="panel full" id="pushCard" style="border: 1px solid rgba(250, 178, 25, 0.25); background: rgba(250, 178, 25, 0.015); margin-top: 8px;">
+          <div class="header-row" style="border-bottom-color: rgba(250, 178, 25, 0.12); padding-bottom: 12px; margin-bottom: 16px;">
+            <div>
+              <div class="title" style="color: #fab219; text-shadow: 0 0 8px rgba(250,178,25,0.25);">Notificaciones push</div>
+              <div class="small">Recibe alertas en este dispositivo aunque el panel esté cerrado.</div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="span-12 small" id="pushStatus" style="line-height: 1.5;">Comprobando este dispositivo...</div>
+            <div class="span-12" id="pushPrefs" style="display: flex; gap: 16px; flex-wrap: wrap;"></div>
+          </div>
+
+          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <button id="pushTest" class="btn util" type="button" style="padding: 10px 24px; font-weight: 800; border-radius: 10px; display: none;">
+              Enviar prueba
+            </button>
+            <button id="pushToggle" class="btn" type="button" style="padding: 10px 32px; font-weight: 800; border-radius: 10px; background: linear-gradient(135deg, #fab219 0%, #ff8a00 100%); color: #000; box-shadow: 0 0 15px rgba(250,178,25,0.3); border: none;">
+              Activar en este dispositivo
             </button>
           </div>
         </section>
@@ -753,5 +765,6 @@
   <div id="toast" class="toast"></div>
   <script src="/js/api.js"></script>
   <script src="/js/configuracion.js"></script>
+  <script src="/js/push.js"></script>
 </body>
 </html>

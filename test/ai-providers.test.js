@@ -41,10 +41,10 @@ test('las claves se guardan cifradas, por proveedor, y nunca se exponen', () => 
 
 test('Dipisik usa la clave del sistema y envía el profile', () => {
   process.env.DIPISIK_API_KEY = 'clave-servidor';
-  const endpoint = resolveIaEndpoint(normalizeIaConfig({ provider: 'dipisik', profile: 'ventas' }), settings);
+  const endpoint = resolveIaEndpoint(normalizeIaConfig({ provider: 'dipisik' }), settings, 'bot-65f1c2a4b7e8d9a0b1c2d3e4');
   assert.equal(endpoint.apiKey, 'clave-servidor');
   assert.equal(endpoint.usingSharedKey, true);
-  assert.deepEqual(endpoint.extraBody, { profile: 'ventas' });
+  assert.deepEqual(endpoint.extraBody, { profile: 'ibot-bot-65f1c2a4b7e8d9a0b1c2d3e4' });
   assert.throws(
     () => resolveIaEndpoint(normalizeIaConfig({ provider: 'dipisik' }), { ...settings, aiSharedDipisik: false }),
     /Falta la API key/,
@@ -63,12 +63,19 @@ test('los endpoints personalizados requieren permiso del administrador y una URL
 });
 
 test('normaliza límites y valores fuera de rango', () => {
-  const ia = normalizeIaConfig({ temperature: 9, maxTokens: 5, historyLimit: -3, commands: ['/ia', 'con espacio', ''], profile: 'opencode:x' });
+  const ia = normalizeIaConfig({ temperature: 9, maxTokens: 5, historyLimit: -3, commands: ['/ia', 'con espacio', ''], triggerMode: 'otro' });
   assert.equal(ia.temperature, 2);
   assert.equal(ia.maxTokens, 16);
   assert.equal(ia.historyLimit, 0);
   assert.deepEqual(ia.commands, ['/ia']);
-  assert.equal(ia.profile, 'whatsapp');
+  assert.equal(ia.triggerMode, 'command');
+});
+
+test('el disparador antiguo se convierte al nuevo', () => {
+  assert.equal(normalizeIaConfig({ commandMode: 'required' }).triggerMode, 'command');
+  assert.equal(normalizeIaConfig({ commandMode: 'all' }).triggerMode, 'all');
+  assert.equal(normalizeIaConfig({ commandMode: 'optional' }).triggerMode, 'all');
+  assert.equal(normalizeIaConfig({ triggerMode: 'off', commandMode: 'all' }).triggerMode, 'off');
 });
 
 test('cifrado de secretos: ida y vuelta, y compatibilidad con valores sin cifrar', () => {

@@ -74,7 +74,6 @@ const IbotApi = (() => {
     saveOrder: (body) => request(api('/config/order'), { method: 'PUT', body: JSON.stringify(body) }),
     toggleRespuestas: () => request(api('/respuestas/toggle'), { method: 'POST' }),
     iaProviders: () => request(api('/ia/providers')),
-    testIa: (prompt) => request(api('/ia/test'), { method: 'POST', body: JSON.stringify({ prompt }) }),
     resetIaMemory: () => request(api('/ia/reset-memory'), { method: 'POST' }),
     groups: () => request(api('/grupos')),
     categories: () => request(api('/grupos/categories')),
@@ -122,6 +121,17 @@ function toast(msg) {
 // eslint-disable-next-line no-unused-vars
 async function loadUserBot() {
   return IbotApi.bot();
+}
+// Cambios en tiempo real (estado del WhatsApp y grupos). EventSource se
+// reconecta solo si se corta la conexión.
+// eslint-disable-next-line no-unused-vars
+function subscribeLive(onData) {
+  if (typeof EventSource !== 'function') return null;
+  const source = new EventSource(IbotApi.api('/events/live'), { withCredentials: true });
+  source.addEventListener('live', (event) => {
+    try { onData(JSON.parse(event.data)); } catch (err) { console.error('[live]', err); }
+  });
+  return source;
 }
 // eslint-disable-next-line no-unused-vars
 function bindPanelLogout() {

@@ -68,14 +68,16 @@ export const IA_DEFAULTS = Object.freeze({
   provider: 'dipisik',
   model: 'deepseek-chat',
   baseUrl: '',
-  profile: 'whatsapp',
   temperature: 0.6,
   maxTokens: 500,
   timeoutMs: 20000,
   historyLimit: 8,
   perGroupCooldownMs: 3000,
-  commandMode: 'required',
+  // Cuándo responde: off (desactivada), all (todos los mensajes),
+  // command (mensajes que empiezan con un comando) o keyword (contienen un texto).
+  triggerMode: 'command',
   commands: ['/chat', '/gpt'],
+  keywords: [],
   systemPrompt: 'Eres un asistente útil, breve y profesional dentro de un grupo de WhatsApp. Responde en español salvo que el usuario pida otro idioma.',
   fallbackText: 'No pude generar una respuesta en este momento.',
   onlyConfiguredGroups: true,
@@ -88,7 +90,18 @@ export const IA_DEFAULTS = Object.freeze({
   maxReplyChars: 0,
 });
 
-const PROFILE_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
+export const TRIGGER_MODES = Object.freeze(['off', 'all', 'command', 'keyword']);
+const LEGACY_TRIGGERS = { required: 'command', all: 'all', optional: 'all' };
+
+// Cada usuario tiene su propio profile en Dipisik (su chat dedicado).
+export function dipisikProfileFor(accountId) {
+  return `ibot-${String(accountId || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`.slice(0, 40);
+}
+
+function triggerModeOf(raw) {
+  if (TRIGGER_MODES.includes(raw.triggerMode)) return raw.triggerMode;
+  return LEGACY_TRIGGERS[raw.commandMode] || IA_DEFAULTS.triggerMode;
+}
 
 function clampNumber(value, min, max, fallback) {
   const n = Number(value);
@@ -134,18 +147,22 @@ export function normalizeIaConfig(raw = {}) {
     .filter((command) => command && command.length <= 20 && !/\s/.test(command))
     .slice(0, 10);
   const model = text(raw.model, 100).trim();
+  const keywords = (Array.isArray(raw.keywords) ? raw.keywords : [])
+    .map((keyword) => String(keyword).trim())
+    .filter((keyword) => keyword && keyword.length <= 60)
+    .slice(0, 20);
   return {
     provider,
     model: model || AI_PROVIDERS[provider].models[0] || '',
     baseUrl: provider === 'custom' ? text(raw.baseUrl, 300).trim() : '',
-    profile: PROFILE_PATTERN.test(String(raw.profile || '')) ? String(raw.profile) : IA_DEFAULTS.profile,
     temperature: clampNumber(raw.temperature, 0, 2, IA_DEFAULTS.temperature),
     maxTokens: Math.round(clampNumber(raw.maxTokens, 16, 8192, IA_DEFAULTS.maxTokens)),
     timeoutMs: Math.round(clampNumber(raw.timeoutMs, 3000, 120000, IA_DEFAULTS.timeoutMs)),
     historyLimit: Math.round(clampNumber(raw.historyLimit, 0, 30, IA_DEFAULTS.historyLimit)),
     perGroupCooldownMs: Math.round(clampNumber(raw.perGroupCooldownMs, 0, 600000, IA_DEFAULTS.perGroupCooldownMs)),
-    commandMode: ['all', 'required', 'optional'].includes(raw.commandMode) ? raw.commandMode : IA_DEFAULTS.commandMode,
+    triggerMode: triggerModeOf(raw),
     commands: commands.length ? commands : [...IA_DEFAULTS.commands],
+    keywords,
     systemPrompt: text(raw.systemPrompt, 8000, IA_DEFAULTS.systemPrompt),
     fallbackText: text(raw.fallbackText, 1000, IA_DEFAULTS.fallbackText),
     onlyConfiguredGroups: raw.onlyConfiguredGroups !== false,
@@ -194,7 +211,7 @@ export function publicProviderCatalog(settings) {
 }
 
 // Resuelve URL, clave y parámetros extra para llamar al proveedor elegido.
-export function resolveIaEndpoint(ia, settings) {
+export function resolveIaEndpoint(ia, settings, accountId) {
   const provider = AI_PROVIDERS[ia.provider];
   if (!provider) throw new Error('Proveedor de IA desconocido');
   if (ia.provider === 'custom' && !settings.aiAllowCustomEndpoints) {
@@ -216,7 +233,7 @@ export function resolveIaEndpoint(ia, settings) {
     apiKey,
     usingSharedKey,
     providerName: provider.name,
-    extraBody: provider.supportsProfile ? { profile: ia.profile } : {},
+    extraBody: provider.supportsProfile ? { profile: dipisikProfileFor(accountId) } : {},
   };
 }
 
@@ -235,8 +252,8 @@ function clientFor({ apiKey, baseUrl, model, timeoutMs, providerName }) {
   return client;
 }
 
-export async function askIa(ia, settings, messages) {
-  const endpoint = resolveIaEndpoint(ia, settings);
+export async function askIa(ia, settings, messages, accountId) {
+  const endpoint = resolveIaEndpoint(ia, settings, accountId);
   const client = clientFor({ ...endpoint, model: ia.model, timeoutMs: ia.timeoutMs });
   return client.chat({
     messages,
@@ -250,16 +267,17 @@ const provisionedProfiles = new Set();
 
 // Crea el profile en Dipisik antes del primer uso para que quede listo en todas
 // sus cuentas (si no, el primer mensaje tarda más). Es idempotente.
-export async function ensureDipisikProfile(ia, settings) {
+export async function ensureDipisikProfile(ia, settings, accountId) {
   if (ia.provider !== 'dipisik') return;
-  const { baseUrl, apiKey } = resolveIaEndpoint(ia, settings);
-  const cacheKey = `${baseUrl}|${ia.profile}`;
+  const { baseUrl, apiKey } = resolveIaEndpoint(ia, settings, accountId);
+  const profile = dipisikProfileFor(accountId);
+  const cacheKey = `${baseUrl}|${profile}`;
   if (provisionedProfiles.has(cacheKey)) return;
-  const response = await fetch(`${baseUrl}/profiles/${encodeURIComponent(ia.profile)}`, {
+  const response = await fetch(`${baseUrl}/profiles/${encodeURIComponent(profile)}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(15000),
   });
-  if (!response.ok) throw new Error(`Dipisik ${response.status} al crear el profile ${ia.profile}`);
+  if (!response.ok) throw new Error(`Dipisik ${response.status} al crear el profile ${profile}`);
   provisionedProfiles.add(cacheKey);
 }

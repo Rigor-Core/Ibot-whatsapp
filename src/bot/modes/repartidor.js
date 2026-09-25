@@ -61,6 +61,13 @@ export function handleRepartidor(extracted, ctx) {
         ` | TOTAL: ${totalTime.toFixed(2)}ms`
       );
 
+      // Todo lo siguiente ocurre después de que la respuesta ya salió.
+      ctx.notify?.('order', {
+        title: '📦 Pedido tomado',
+        body: `Respondí en ${cfg.nombre || 'un grupo'}: ${String(extracted.text || '[imagen]').slice(0, 120)}`,
+        tag: `order-${extracted.groupId}`,
+      });
+
       // Procesar persistencia en base de datos estrictamente después
       if (localLimitReached) disableGroup(ctx, extracted.groupId, cfg);
 
@@ -95,4 +102,9 @@ function disableGroup(ctx, groupId, cfg) {
     { $set: { responder: false, updatedAt: new Date() } },
   ).catch(() => null);
   ctx.logger.info('repartidor', 'Grupo desactivado por límite', { groupId, limite: cfg.limite });
+  ctx.notify?.('groupLimit', {
+    title: 'Grupo en su límite',
+    body: `${cfg.nombre || 'Un grupo'} llegó a su límite de ${cfg.limite} respuesta(s) y se desactivó.`,
+    tag: `limit-${groupId}`,
+  });
 }

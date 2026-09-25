@@ -492,6 +492,35 @@ function bind() {
   fieldCommandsEnabled.addEventListener('change', syncCommandFields);
 }
 
+/* ---- Cambios en vivo ---- */
+const LIVE_FIELDS = ['nombre', 'grupo', 'tipoMensaje', 'responder', 'independiente', 'limite', 'contador', 'commandSettings'];
+
+// Aplica contadores y estados que cambian mientras el bot trabaja, sin recargar la página.
+function applyLiveGroups({ status, groups: liveGroups }) {
+  const respBtn = document.getElementById('btn-toggle-nonind');
+  if (respBtn && currentConfig) {
+    currentConfig.respuestas = !!status?.respuestas;
+    setRespBtn(respBtn, currentConfig.respuestas);
+  }
+  if (!Array.isArray(liveGroups)) return;
+  const byId = new Map(liveGroups.map((g) => [g.groupId, g]));
+  if (byId.size !== groups.length || groups.some((g) => !byId.has(g.groupId))) {
+    loadGroups();
+    return;
+  }
+  let changed = false;
+  for (const g of groups) {
+    const live = byId.get(g.groupId);
+    for (const field of LIVE_FIELDS) {
+      if (JSON.stringify(g[field]) !== JSON.stringify(live[field])) {
+        g[field] = live[field];
+        changed = true;
+      }
+    }
+  }
+  if (changed) renderGroups();
+}
+
 /* ---- Arranque ---- */
 bind();
-loadGroups();
+loadGroups().then(() => subscribeLive(applyLiveGroups));

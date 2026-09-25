@@ -1,13 +1,24 @@
 import { askIa } from '../../services/ai-providers.js';
 import { getSystemSettingsCached } from '../../services/settings-service.js';
 
-function parseCommand(text, ia) {
+function stripAccents(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+// Decide si la IA responde y qué texto le envía según el disparador elegido.
+function parseTrigger(text, ia) {
   const trimmed = String(text || '').trim();
-  const lower = trimmed.toLowerCase();
-  const found = ia.commands.find((cmd) => lower === cmd.toLowerCase() || lower.startsWith(`${cmd.toLowerCase()} `));
-  if (found) return { ok: true, prompt: trimmed.slice(found.length).trim(), command: found };
-  if (ia.commandMode === 'required') return { ok: false, prompt: '', command: null };
-  return { ok: true, prompt: trimmed, command: null };
+  if (ia.triggerMode === 'all') return trimmed;
+  if (ia.triggerMode === 'command') {
+    const lower = trimmed.toLowerCase();
+    const found = ia.commands.find((cmd) => lower === cmd.toLowerCase() || lower.startsWith(`${cmd.toLowerCase()} `));
+    return found ? trimmed.slice(found.length).trim() : '';
+  }
+  if (ia.triggerMode === 'keyword') {
+    const normalized = stripAccents(trimmed);
+    return ia.keywords.some((keyword) => normalized.includes(stripAccents(keyword))) ? trimmed : '';
+  }
+  return '';
 }
 
 function remember(ctx, groupId, role, content, limit) {
@@ -26,6 +37,7 @@ function mentionFor(jid) {
 // usuario configuró. Se ejecuta sin bloquear el procesamiento de otros mensajes.
 export async function handleIa(extracted, ctx) {
   const ia = ctx.config.ia;
+  if (ia.triggerMode === 'off') return false;
   if (ia.ignoreOwnMessages && extracted.fromMe) return false;
   if (ia.ignoreMedia && extracted.mediaType && !extracted.text) return false;
 
@@ -35,8 +47,8 @@ export async function handleIa(extracted, ctx) {
     if (!cfg.independiente && !ctx.config.respuestas) return false;
   }
 
-  const parsed = parseCommand(extracted.text, ia);
-  if (!parsed.ok || !parsed.prompt) return false;
+  const prompt = parseTrigger(extracted.text, ia);
+  if (!prompt) return false;
 
   const now = Date.now();
   const last = ctx.state.aiCooldowns.get(extracted.groupId) || 0;
@@ -46,8 +58,8 @@ export async function handleIa(extracted, ctx) {
   const memoryLimit = ia.historyLimit * 2;
   const history = ctx.aiMemory.get(extracted.groupId) || [];
   const userContent = ia.includeSenderName && extracted.senderName
-    ? `${extracted.senderName}: ${parsed.prompt}`
-    : parsed.prompt;
+    ? `${extracted.senderName}: ${prompt}`
+    : prompt;
   const messages = [
     ...(ia.systemPrompt ? [{ role: 'system', content: ia.systemPrompt }] : []),
     ...history.slice(-memoryLimit),
@@ -58,7 +70,7 @@ export async function handleIa(extracted, ctx) {
   if (ia.showTyping) ctx.socket.sendPresenceUpdate('composing', extracted.groupId).catch(() => null);
   try {
     const settings = await getSystemSettingsCached(ctx.collections);
-    let answer = await askIa(ia, settings, messages);
+    let answer = await askIa(ia, settings, messages, ctx.accountId);
     if (!answer) return false;
     if (ia.maxReplyChars > 0 && answer.length > ia.maxReplyChars) answer = `${answer.slice(0, ia.maxReplyChars - 1)}…`;
     const content = ia.mentionSender && extracted.senderId

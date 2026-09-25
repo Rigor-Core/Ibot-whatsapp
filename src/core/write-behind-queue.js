@@ -1,7 +1,7 @@
 import { dayKey } from './utils.js';
 
 export class WriteBehindQueue {
-  constructor({ collections, accountId, logger, timeZone }) {
+  constructor({ collections, accountId, logger, timeZone, onFlushed }) {
     this.collections = collections;
     this.accountId = accountId;
     this.logger = logger;
@@ -11,6 +11,7 @@ export class WriteBehindQueue {
     this.counterRetry = 0;
     this.pendingGroups = new Map();
     this.pendingDaily = new Map();
+    this.onFlushed = onFlushed;
     this.timer = null;
     this.delayMs = 250;
   }
@@ -113,6 +114,7 @@ export class WriteBehindQueue {
       entry.requeue();
     });
 
+    this.onFlushed?.();
     if (this.hasPending()) this.schedule();
   }
 }

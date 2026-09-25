@@ -1,5 +1,13 @@
 let current = null;
 let iaProviders = [];
+let iaDefaults = {};
+
+// Muestra el campo que corresponde al disparador elegido.
+function syncIaTriggerFields() {
+  const mode = $('#iaTriggerMode').value;
+  $('#iaCommandsField').style.display = mode === 'command' ? '' : 'none';
+  $('#iaKeywordsField').style.display = mode === 'keyword' ? '' : 'none';
+}
 
 function selectedProvider() {
   return iaProviders.find((provider) => provider.id === $('#iaProvider').value) || iaProviders[0];
@@ -10,7 +18,6 @@ function syncIaProviderFields() {
   const provider = selectedProvider();
   if (!provider) return;
   $('#iaModelOptions').innerHTML = provider.models.map((model) => `<option value="${escapeHtml(model)}">`).join('');
-  $('#iaProfileField').style.display = provider.supportsProfile ? '' : 'none';
   $('#iaBaseUrlField').style.display = provider.id === 'custom' ? '' : 'none';
   const keySet = !!current?.ia?.apiKeysSet?.[provider.id];
   const keyInfo = keySet
@@ -29,7 +36,26 @@ function syncIaProviderFields() {
 async function load() {
   const [config, catalog] = await Promise.all([IbotApi.config(), IbotApi.iaProviders()]);
   current = config;
+  iaDefaults = catalog.defaults;
   iaProviders = catalog.providers;
+  $('#iaProvider').innerHTML = iaProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name)}</option>`).join('');
+  fillConfig();
+
+  // Populate groups dropdown for connection notifications
+  const userGroups = await IbotApi.groups().catch(() => []);
+  const selectGroup = $('#connNotifyGroup');
+  if (selectGroup) {
+    selectGroup.innerHTML = '<option value="">Selecciona un grupo...</option>' + 
+      userGroups.map(g => `<option value="${escapeHtml(g.groupId)}">${escapeHtml(g.nombre || g.groupId)}</option>`).join('');
+  }
+  $('#connNotifyGroup').value = current.connectionNotification?.groupId || '';
+
+  // Cargar orden de grupos
+  await loadGroupOrder(userGroups);
+}
+
+// Refleja en el formulario la configuración actual sin volver a pedir nada al servidor.
+function fillConfig() {
   $('#modo').value = current.modo || 'repartidor';
   
   const respEl = $('#respuestas');
@@ -39,11 +65,9 @@ async function load() {
   $('#filterEnabled').checked = current.repartidor?.filterEnabled !== false;
   $('#timezone').value = current.timezone || 'America/Hermosillo';
   
-  const ia = { ...catalog.defaults, ...(current.ia || {}) };
-  $('#iaProvider').innerHTML = iaProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name)}</option>`).join('');
+  const ia = { ...iaDefaults, ...(current.ia || {}) };
   $('#iaProvider').value = iaProviders.some((provider) => provider.id === ia.provider) ? ia.provider : iaProviders[0]?.id;
   $('#iaModel').value = ia.model || '';
-  $('#iaProfile').value = ia.profile || 'whatsapp';
   $('#iaBaseUrl').value = ia.baseUrl || '';
   $('#iaApiKey').value = '';
   $('#iaTemperature').value = ia.temperature;
@@ -52,8 +76,10 @@ async function load() {
   $('#iaHistoryLimit').value = ia.historyLimit;
   $('#iaCooldown').value = ia.perGroupCooldownMs;
   $('#iaMaxReplyChars').value = ia.maxReplyChars;
-  $('#iaCommandMode').value = ia.commandMode;
+  $('#iaTriggerMode').value = ia.triggerMode;
   $('#iaCommands').value = ia.commands.join(',');
+  $('#iaKeywords').value = ia.keywords.join(',');
+  syncIaTriggerFields();
   $('#iaSystemPrompt').value = ia.systemPrompt || '';
   $('#iaFallback').value = ia.fallbackText || '';
   $('#iaOnlyConfigured').checked = ia.onlyConfiguredGroups;
@@ -65,21 +91,10 @@ async function load() {
   $('#iaIncludeSender').checked = ia.includeSenderName;
   syncIaProviderFields();
 
-  // Populate groups dropdown for connection notifications
-  const userGroups = await IbotApi.groups().catch(() => []);
-  const selectGroup = $('#connNotifyGroup');
-  if (selectGroup) {
-    selectGroup.innerHTML = '<option value="">Selecciona un grupo...</option>' + 
-      userGroups.map(g => `<option value="${escapeHtml(g.groupId)}">${escapeHtml(g.nombre || g.groupId)}</option>`).join('');
-  }
-
   const connNotify = current.connectionNotification || {};
   $('#connNotifyEnabled').checked = !!connNotify.enabled;
-  $('#connNotifyGroup').value = connNotify.groupId || '';
+  if ($('#connNotifyGroup').options.length > 1) $('#connNotifyGroup').value = connNotify.groupId || '';
   $('#connNotifyMessage').value = connNotify.message || '';
-
-  // Cargar orden de grupos
-  await loadGroupOrder(userGroups);
 }
 
 function payload() {
@@ -87,7 +102,6 @@ function payload() {
   const ia = {
     provider,
     model: $('#iaModel').value.trim(),
-    profile: $('#iaProfile').value.trim() || 'whatsapp',
     baseUrl: provider === 'custom' ? $('#iaBaseUrl').value.trim() : '',
     temperature: Number($('#iaTemperature').value || 0.6),
     maxTokens: Number($('#iaMaxTokens').value || 500),
@@ -95,8 +109,9 @@ function payload() {
     historyLimit: Number($('#iaHistoryLimit').value || 0),
     perGroupCooldownMs: Number($('#iaCooldown').value || 0),
     maxReplyChars: Number($('#iaMaxReplyChars').value || 0),
-    commandMode: $('#iaCommandMode').value,
+    triggerMode: $('#iaTriggerMode').value,
     commands: $('#iaCommands').value.split(',').map((s) => s.trim()).filter(Boolean),
+    keywords: $('#iaKeywords').value.split(',').map((s) => s.trim()).filter(Boolean),
     systemPrompt: $('#iaSystemPrompt').value,
     fallbackText: $('#iaFallback').value,
     onlyConfiguredGroups: $('#iaOnlyConfigured').checked,
@@ -133,13 +148,19 @@ function payload() {
   };
 }
 
-async function save() {
-  try { 
-    await IbotApi.saveConfig(payload()); 
-    toast('Configuración guardada'); 
-    await load(); 
-  } catch (e) { 
-    toast(e.message); 
+// Guarda y refleja el resultado en el formulario sin recargar la página.
+async function save(event) {
+  const btn = event?.currentTarget;
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    current = await IbotApi.saveConfig(payload());
+    fillConfig();
+    toast('✅ Configuración guardada');
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
   }
 }
 
@@ -156,28 +177,7 @@ $('#iaProvider').onchange = () => {
   syncIaProviderFields();
 };
 
-$('#iaTest').onclick = async () => {
-  const prompt = $('#iaTestPrompt').value.trim();
-  if (!prompt) {
-    toast('⚠️ Escribe un mensaje de prueba.');
-    return;
-  }
-  const btn = $('#iaTest');
-  const result = $('#iaTestResult');
-  btn.disabled = true;
-  result.style.display = 'block';
-  result.textContent = 'Guardando y consultando a la IA...';
-  try {
-    await IbotApi.saveConfig(payload());
-    await load();
-    const test = await IbotApi.testIa(prompt);
-    result.textContent = `✅ ${test.model} · ${test.ms} ms\n\n${test.answer || '(respuesta vacía)'}`;
-  } catch (e) {
-    result.textContent = `❌ ${e.message}`;
-  } finally {
-    btn.disabled = false;
-  }
-};
+$('#iaTriggerMode').onchange = syncIaTriggerFields;
 
 $('#iaResetMemory').onclick = async () => {
   try {

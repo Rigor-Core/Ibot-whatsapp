@@ -13,17 +13,20 @@ import { requireAccountUser } from './auth.middleware.js';
 import { BOT_MODES } from '../bot/bot-runtime.js';
 import {
   IA_DEFAULTS,
-  askIa,
   ensureDipisikProfile,
   mergeIaUpdate,
-  normalizeIaConfig,
   publicIaConfig,
   publicProviderCatalog,
 } from '../services/ai-providers.js';
 import { getSystemSettingsCached } from '../services/settings-service.js';
+import { NOTIFICATION_TYPES, normalizeNotificationPrefs } from '../services/push-service.js';
 
 function publicConfig(config) {
-  return { ...publicSafeConfig(config), ia: publicIaConfig(config?.ia) };
+  return {
+    ...publicSafeConfig(config),
+    ia: publicIaConfig(config?.ia),
+    notifications: normalizeNotificationPrefs(config?.notifications),
+  };
 }
 
 function repartidorSettings(current = {}, body = {}) {
@@ -36,7 +39,7 @@ function repartidorSettings(current = {}, body = {}) {
   };
 }
 
-export function createMainRouter({ collections, registry, scheduler }) {
+export function createMainRouter({ collections, registry, scheduler, push }) {
   const router = Router();
 
   // Solo los usuarios normales tienen cuenta de WhatsApp; el administrador no.
@@ -122,13 +125,14 @@ export function createMainRouter({ collections, registry, scheduler }) {
       if (body.adminCommands !== undefined) {
         set.adminCommands = normalizeAdminCommandsConfig(body.adminCommands);
       }
+      if (body.notifications !== undefined) set.notifications = normalizeNotificationPrefs(body.notifications);
       await collections.configs.updateOne({ accountId }, { $set: set }, { upsert: true });
       const runtime = await registry.get(accountId);
       await runtime.reloadConfig();
       if (set.ia) {
         // Deja listo el profile de Dipisik antes del primer mensaje (no bloquea el guardado).
         getSystemSettingsCached(collections)
-          .then((settings) => ensureDipisikProfile(runtime.config.ia, settings))
+          .then((settings) => ensureDipisikProfile(runtime.config.ia, settings, accountId))
           .catch((err) => runtime.logger.warn('ia', 'No se pudo preparar el profile de Dipisik', { error: err.message }));
       }
       const updated = await getConfig(collections, accountId);
@@ -144,23 +148,41 @@ export function createMainRouter({ collections, registry, scheduler }) {
     res.json({ providers: publicProviderCatalog(settings), defaults: publicIaConfig(IA_DEFAULTS) });
   });
 
-  // Prueba la configuración guardada con un mensaje, sin pasar por WhatsApp.
-  router.post('/api/bot/ia/test', async (req, res) => {
+  // ─── Notificaciones push ───────────────────────────────────────────────
+  router.get('/api/bot/push', async (req, res) => {
+    const accountId = resolveAccountId(req);
+    res.json({
+      publicKey: push.publicKey,
+      types: NOTIFICATION_TYPES,
+      preferences: await push.preferences(accountId),
+      subscribed: await push.isSubscribed(accountId, req.query.endpoint),
+    });
+  });
+
+  router.post('/api/bot/push/subscribe', async (req, res) => {
     try {
-      const prompt = String(req.body?.prompt || '').trim().slice(0, 2000);
-      if (!prompt) return res.status(400).json({ error: 'Escribe un mensaje de prueba' });
-      const runtime = await registry.get(resolveAccountId(req));
-      const ia = normalizeIaConfig(runtime.config?.ia);
-      const settings = await getSystemSettingsCached(collections);
-      const started = performance.now();
-      const answer = await askIa(ia, settings, [
-        ...(ia.systemPrompt ? [{ role: 'system', content: ia.systemPrompt }] : []),
-        { role: 'user', content: prompt },
-      ]);
-      res.json({ answer, ms: Math.round(performance.now() - started), provider: ia.provider, model: ia.model });
+      await push.subscribe(resolveAccountId(req), req.body?.subscription, req.headers['user-agent']);
+      res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  router.post('/api/bot/push/unsubscribe', async (req, res) => {
+    await push.unsubscribe(resolveAccountId(req), req.body?.endpoint);
+    res.json({ ok: true });
+  });
+
+  router.post('/api/bot/push/test', async (req, res) => {
+    const delivered = await push.notify({
+      accountId: resolveAccountId(req),
+      type: 'test',
+      title: 'Ibot',
+      body: '🔔 Las notificaciones funcionan en este dispositivo.',
+      force: true,
+    });
+    if (!delivered) return res.status(400).json({ error: 'No hay dispositivos suscritos o el envío falló.' });
+    res.json({ ok: true, delivered });
   });
 
   router.post('/api/bot/ia/reset-memory', async (req, res) => {
@@ -487,6 +509,21 @@ export function createMainRouter({ collections, registry, scheduler }) {
     } catch (error) {
       res.status(400).json({ error: error.message });
     }
+  });
+
+  // Estado del WhatsApp y grupos en tiempo real para el panel del usuario.
+  router.get('/api/bot/events/live', async (req, res) => {
+    const runtime = await registry.get(resolveAccountId(req));
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    });
+    const send = (payload) => res.write(`event: live\ndata: ${JSON.stringify(payload)}\n\n`);
+    const off = registry.eventBus.on(`live:${runtime.accountId}`, send);
+    // Comentario periódico para que proxies no cierren la conexión inactiva.
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
+    req.on('close', () => { off(); clearInterval(heartbeat); });
   });
 
   router.get('/api/bot/events/chats', async (req, res) => {

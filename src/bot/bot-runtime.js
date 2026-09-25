@@ -37,6 +37,8 @@ export const DEFAULT_MODE = 'repartidor';
 const DEVICE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const WARMUP_INTERVAL_MS = 10 * 60 * 1000;
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000, 15000];
+// Solo se avisa de una desconexión si no se recupera sola en este tiempo.
+const DISCONNECT_ALERT_MS = 60 * 1000;
 
 function normalizeContactJid(value) {
   const raw = String(value || '').trim().split('/')[0];
@@ -69,6 +71,7 @@ export class BotRuntime {
       accountId,
       logger: this.logger,
       timeZone: () => this.config?.timezone,
+      onFlushed: () => this.broadcastLive(),
     });
     this.groupsById = new Map();
     this.groupDocIds = new Set();
@@ -96,6 +99,33 @@ export class BotRuntime {
       notificationSent: false,
     };
     this.connectTime = null;
+    this.hasSession = false;
+    this.liveTimer = null;
+    this.disconnectAlertTimer = null;
+  }
+
+  // Publica una alerta; el servicio de push decide según las preferencias del usuario.
+  notify(type, { title, body, tag }) {
+    this.eventBus.emit('notify', { accountId: this.accountId, type, title, body, tag, url: '/' });
+  }
+
+  clearDisconnectAlert() {
+    clearTimeout(this.disconnectAlertTimer);
+    this.disconnectAlertTimer = null;
+  }
+
+  // Envía al panel (en tiempo real) el estado y los grupos, agrupando cambios
+  // seguidos en un solo evento para no saturar el navegador.
+  broadcastLive() {
+    if (this.liveTimer) return;
+    this.liveTimer = setTimeout(() => {
+      this.liveTimer = null;
+      this.eventBus.emit(`live:${this.accountId}`, {
+        status: this.getPublicStatus(),
+        groups: [...this.groupsById.values()].map(({ metadata: _metadata, ...group }) => group),
+      });
+    }, 250);
+    this.liveTimer.unref?.();
   }
 
   async init() {
@@ -107,6 +137,7 @@ export class BotRuntime {
     await this.reloadGroups();
     await this.loadCounter();
     await this.loadContacts();
+    this.hasSession = await this.hasSavedSession();
   }
 
   async loadContacts() {
@@ -189,6 +220,7 @@ export class BotRuntime {
       if (this.config.modo === 'repartidor') this.warmUpActiveGroups();
     }
 
+    this.broadcastLive();
     if (!oldRespuestas && this.config.respuestas) {
       this.state.mensajesRespondidos = 0;
       this.logger.info('runtime', 'Respuestas globales activadas; reiniciando contador global de mensajes a 0');
@@ -241,6 +273,7 @@ export class BotRuntime {
     this.groupDocIds = docIds;
     this.directorySnapshot = null;
     this.releaseStaleIndependentLock();
+    this.broadcastLive();
     if (previousTotal !== this.groupsById.size) {
       this.logger.info('runtime', 'Grupos cargados en memoria', { total: this.groupsById.size });
     }
@@ -254,6 +287,7 @@ export class BotRuntime {
     this.cacheGroupMetadata(group);
     this.directorySnapshot = null;
     this.releaseStaleIndependentLock();
+    this.broadcastLive();
   }
 
   ownsGroupDocument(docId) {
@@ -267,6 +301,7 @@ export class BotRuntime {
     group.contador = Math.max(0, Number(value) || 0);
     this.queue.dropGroupIncrements(groupId);
     this.releaseStaleIndependentLock();
+    this.broadcastLive();
   }
 
   // El candado de grupos independientes solo tiene sentido mientras el grupo
@@ -299,7 +334,7 @@ export class BotRuntime {
       { accountId: this.accountId },
       { $set: { estado: status, updatedAt: now(), ...(extra.qr !== undefined ? { qr: extra.qr } : {}) } },
     ).catch(() => null);
-    this.eventBus.emit(`status:${this.accountId}`, this.getPublicStatus());
+    this.broadcastLive();
   }
 
   async start() {
@@ -310,6 +345,7 @@ export class BotRuntime {
     this.isStarting = true;
     this.isStopping = false;
     this.state.notificationSent = false;
+    this.state.qrNotified = false;
     const myGeneration = ++this.generation;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -448,6 +484,11 @@ export class BotRuntime {
       await this.collections.qrHistory.insertOne({ accountId: this.accountId, qr: dataUrl, createdAt: now() }).catch(() => null);
       await this.updateStatus('qr', { qr: dataUrl });
       this.logger.info('connection', 'QR generado');
+      // El QR se renueva cada pocos segundos: se avisa una sola vez por intento.
+      if (!this.state.qrNotified) {
+        this.state.qrNotified = true;
+        this.notify('qr', { title: 'Escanea el código QR', body: 'Tu WhatsApp espera que escanees el código QR en el panel.' });
+      }
       return;
     }
     if (connection === 'connecting') {
@@ -457,6 +498,8 @@ export class BotRuntime {
     }
     if (connection === 'open') {
       this.qr = null;
+      this.hasSession = true;
+      this.clearDisconnectAlert();
       this.reconnectAttempts = 0;
       this.connectTime = Math.floor(Date.now() / 1000);
       await this.collections.qrHistory.deleteMany({ accountId: this.accountId }).catch(() => null);
@@ -486,6 +529,12 @@ export class BotRuntime {
       if (this.isStopping || loggedOut) {
         if (loggedOut) {
             this.logger.warn('connection', 'Sesión invalidada (401). Se requiere nuevo inicio de sesión.');
+            if (!this.isStopping) {
+              this.notify('disconnected', {
+                title: 'Sesión de WhatsApp cerrada',
+                body: 'WhatsApp cerró la sesión del bot. Entra al panel y escanea el QR para volver a vincularlo.',
+              });
+            }
             await this.logout();
             return;
         }
@@ -493,6 +542,17 @@ export class BotRuntime {
         return;
       }
       await this.updateStatus('disconnected', { qr: null });
+      if (!this.disconnectAlertTimer) {
+        this.disconnectAlertTimer = setTimeout(() => {
+          this.disconnectAlertTimer = null;
+          if (this.status === 'connected' || this.isStopping) return;
+          this.notify('disconnected', {
+            title: 'WhatsApp desconectado',
+            body: 'Tu WhatsApp lleva más de un minuto desconectado. El bot sigue intentando reconectar.',
+          });
+        }, DISCONNECT_ALERT_MS);
+        this.disconnectAlertTimer.unref?.();
+      }
       await this.scheduleReconnect();
     }
   }
@@ -772,6 +832,7 @@ export class BotRuntime {
       getGroupMetadata: (groupId) => this.getGroupMetadata(groupId),
       markBanned: (groupId, participant) => this.markBanned(groupId, participant),
       unmarkBanned: (groupId, participant) => this.unmarkBanned(groupId, participant),
+      notify: (type, message) => this.notify(type, message),
     };
   }
 
@@ -793,6 +854,7 @@ export class BotRuntime {
     this.reconnectTimer = null;
     clearInterval(this.warmupTimer);
     this.warmupTimer = null;
+    this.clearDisconnectAlert();
     ++this.generation;
     await this.stopSocketOnly();
 
@@ -827,6 +889,7 @@ export class BotRuntime {
     this.reconnectTimer = null;
     clearInterval(this.warmupTimer);
     this.warmupTimer = null;
+    this.clearDisconnectAlert();
     this.userDevicesCache.flushAll();
     ++this.generation;
     const sock = this.socket;
@@ -840,6 +903,7 @@ export class BotRuntime {
     this.authState = null;
     await this.queue.flush().catch(() => null);
     await this.collections.whatsappSessions.deleteMany({ accountId: this.accountId }).catch(() => null);
+    this.hasSession = false;
     await this.collections.configs.updateOne(
       { accountId: this.accountId },
       { $set: { activo: false, respuestas: false, qr: null, estado: 'logged_out', updatedAt: now() } },
@@ -858,6 +922,7 @@ export class BotRuntime {
       respuestas: !!this.config?.respuestas,
       ordenesRecibidas: this.state.ordenesRecibidas,
       gruposConfigurados: this.groupsById.size,
+      hasSession: this.hasSession,
     };
   }
 

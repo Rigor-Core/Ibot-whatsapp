@@ -18,14 +18,15 @@ Cada rol es redirigido a su propio panel y la API lo respeta: `/api/bot/*` es so
   - `repartidor`: responde al instante los pedidos de los grupos activos. Mantiene en caché los dispositivos de los participantes y precalienta las sesiones de cifrado para que la primera respuesta tras un rato sin actividad no espere consultas a WhatsApp.
   - `normal`: solo comandos de grupo, bienvenidas y despedidas.
   - `watch`: solo observa y guarda los mensajes de los grupos.
-  - `ia`: responde con IA. Proveedores: Dipisik (con profile dedicado), DeepSeek, OpenAI, Z.ai, Gemini, Groq, OpenRouter y, si el administrador lo permite, cualquier endpoint compatible con OpenAI. Las claves de los usuarios se guardan cifradas.
+  - `ia`: responde con IA por WhatsApp. El usuario elige cuándo: desactivada, a todos los mensajes, con un comando (`/chat ...`) o cuando el mensaje contiene un texto específico. Con Dipisik cada usuario tiene su propio profile automático. Proveedores: Dipisik (con profile dedicado), DeepSeek, OpenAI, Z.ai, Gemini, Groq, OpenRouter y, si el administrador lo permite, cualquier endpoint compatible con OpenAI. Las claves de los usuarios se guardan cifradas.
 - Gestión y monitoreo de grupos.
 - Directorio de contactos agrupado por grupo y contactos externos de Watch.
 - Mensajes programados persistentes con zona horaria configurable.
 - Comandos administrativos independientes por grupo: `help`, `status`, `ban`, `demote`, `group` y `promote`.
 - Permisos de comandos por nivel de WhatsApp: user, admin y owner.
 - Mensajes configurables de bienvenida y despedida.
-- Consola y chats observados en tiempo real.
+- Consola y chats observados en tiempo real; Inicio y Grupos se actualizan solos (sin recargar) cuando cambia el estado del WhatsApp, los contadores o los grupos.
+- Notificaciones push (Web Push estándar con VAPID, sin Firebase): WhatsApp desconectado o sesión cerrada, QR pendiente, pedido tomado, grupo en su límite y mensaje programado fallido. Cada usuario elige cuáles recibe desde Configuración. Requieren HTTPS; en iPhone hay que agregar el panel a la pantalla de inicio (iOS 16.4+).
 - Panel de administración con gráficas de respuestas, mensajes observados, nuevos usuarios, estado de conexiones y mensajes programados.
 
 ## Requisitos
