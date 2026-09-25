@@ -1,8 +1,35 @@
 import fs from 'fs';
 import path from 'path';
 
+export const DEFAULT_TIMEZONE = 'America/Hermosillo';
+
 export function now() {
   return new Date();
+}
+
+const dayFormatters = new Map();
+
+function dayFormatter(timeZone) {
+  const zone = timeZone || DEFAULT_TIMEZONE;
+  let formatter = dayFormatters.get(zone);
+  if (!formatter) {
+    const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
+    try {
+      formatter = new Intl.DateTimeFormat('en-CA', { ...options, timeZone: zone });
+    } catch {
+      formatter = new Intl.DateTimeFormat('en-CA', { ...options, timeZone: 'UTC' });
+    }
+    dayFormatters.set(zone, formatter);
+  }
+  return formatter;
+}
+
+// Día calendario (YYYY-MM-DD) de una fecha en la zona horaria indicada.
+export function dayKey(date, timeZone) {
+  const parts = Object.fromEntries(
+    dayFormatter(timeZone).formatToParts(date).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 export function normalizeAccountId(value) {

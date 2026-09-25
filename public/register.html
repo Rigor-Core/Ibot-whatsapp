@@ -13,13 +13,13 @@
         <div class="logo-container">
           <div class="logo">IB</div>
         </div>
-        <h2>Crear usuario</h2>
-        <p class="small">Registra una credencial de administrador para acceder a tu bot.</p>
+        <h2 id="registerTitle">Crear cuenta</h2>
+        <p class="small" id="registerSubtitle">Crea tu cuenta para vincular y administrar tu WhatsApp.</p>
       </div>
       <form id="registerForm" autocomplete="off">
         <div class="field">
           <label for="username" class="field-label">Usuario</label>
-          <input id="username" name="reg_user_field" type="text" autocomplete="off" placeholder="Elige tu usuario (ej. admin)" value="" required />
+          <input id="username" name="reg_user_field" type="text" autocomplete="off" placeholder="Elige tu usuario" value="" required />
         </div>
         <div class="field">
           <label for="password" class="field-label">Contraseña</label>
@@ -41,7 +41,7 @@
             </button>
           </div>
         </div>
-        <button id="registerBtn" class="btn full" type="submit">Crear usuario</button>
+        <button id="registerBtn" class="btn full" type="submit">Crear cuenta</button>
         <div id="authMsg" class="auth-msg"></div>
       </form>
       <div class="auth-footer">

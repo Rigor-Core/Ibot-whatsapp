@@ -33,6 +33,8 @@ export function getCollections(database = db) {
     chatMessages: database.collection('chat_messages'),
     contacts: database.collection('contacts'),
     scheduledMessages: database.collection('scheduled_messages'),
+    statsDaily: database.collection('stats_daily'),
+    settings: database.collection('system_settings'),
   };
 }
 
@@ -82,6 +84,9 @@ export async function ensureIndexes(database = db) {
     safeCreateIndex(c.contacts, { accountId: 1, id: 1 }, { unique: true }),
     safeCreateIndex(c.scheduledMessages, { accountId: 1, status: 1, scheduledFor: 1 }),
     safeCreateIndex(c.scheduledMessages, { status: 1, nextAttemptAt: 1 }),
+    safeCreateIndex(c.statsDaily, { accountId: 1, day: 1 }, { unique: true }),
+    safeCreateIndex(c.statsDaily, { day: 1 }),
+    safeCreateIndex(c.chatMessages, { ts: 1 }),
   ]);
 }
 

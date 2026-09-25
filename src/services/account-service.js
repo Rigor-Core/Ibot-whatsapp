@@ -1,5 +1,6 @@
 import path from 'path';
-import { normalizeAccountId, now } from '../core/utils.js';
+import { DEFAULT_TIMEZONE, normalizeAccountId, now } from '../core/utils.js';
+import { getSystemSettings } from './settings-service.js';
 
 export function getStorageRoot() {
   return process.env.STORAGE_DIR || 'storage/accounts';
@@ -9,7 +10,7 @@ export function getAccountSessionPath(accountId) {
   return path.join(getStorageRoot(), normalizeAccountId(accountId));
 }
 
-export function defaultBotConfig(accountId) {
+export function defaultBotConfig(accountId, { timezone = DEFAULT_TIMEZONE } = {}) {
   return {
     accountId,
     activo: false,
@@ -50,7 +51,7 @@ export function defaultBotConfig(accountId) {
       groupId: '',
       message: '¡Bot de WhatsApp en línea!'
     },
-    timezone: 'America/Hermosillo',
+    timezone,
     adminCommands: {
       enabled: false,
       definitions: {
@@ -67,9 +68,12 @@ export function defaultBotConfig(accountId) {
   };
 }
 
+// Cada usuario (no administrador) tiene una única cuenta donde vincula su
+// WhatsApp. Se crea la primera vez que el usuario entra a su panel.
 export async function ensureUserAccount(collections, user) {
   const userId = String(user?._id || user?.uid || '').trim();
   if (!userId) throw new Error('Usuario de panel inválido');
+  if (user?.role === 'owner') throw new Error('Los administradores no vinculan WhatsApp');
 
   const existing = await collections.accounts.findOne(
     { userId },
@@ -78,7 +82,7 @@ export async function ensureUserAccount(collections, user) {
   if (existing) return existing;
 
   const accountId = normalizeAccountId(`bot-${userId}`);
-  const label = String(user?.username || 'Mi Bot').trim() || 'Mi Bot';
+  const label = String(user?.username || 'Mi WhatsApp').trim() || 'Mi WhatsApp';
   const sessionPath = getAccountSessionPath(accountId);
   const setOnInsert = {
     accountId,
@@ -99,7 +103,8 @@ export async function ensureUserAccount(collections, user) {
     },
     { upsert: true },
   );
-  const defaultConfig = defaultBotConfig(accountId);
+  const { defaultTimezone } = await getSystemSettings(collections);
+  const defaultConfig = defaultBotConfig(accountId, { timezone: defaultTimezone });
   delete defaultConfig.updatedAt;
   await collections.configs.updateOne(
     { accountId },

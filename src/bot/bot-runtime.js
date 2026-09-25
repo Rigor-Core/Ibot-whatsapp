@@ -11,7 +11,7 @@ import { extractMessage } from './utils/message-extractor.js';
 import { handleNormal } from './modes/normal.js';
 import { handleWatch } from './modes/watch.js';
 import { handleIa } from './modes/ia.js';
-import { useMongoDBAuthState } from './utils/mongo-auth-state.js';
+import { hasRegisteredCreds, useMongoDBAuthState } from './utils/mongo-auth-state.js';
 import {
   handleAdminCommand,
   normalizeAdminCommandsConfig,
@@ -45,13 +45,20 @@ export class BotRuntime {
     this.authPath = path.join(this.sessionPath, 'auth');
     this.logger = new FileLogStore({ accountId, sessionPath: this.sessionPath, eventBus });
     this.chatStore = new ChatStore({ accountId, collections, eventBus });
-    this.queue = new WriteBehindQueue({ collections, accountId, logger: this.logger });
+    this.queue = new WriteBehindQueue({
+      collections,
+      accountId,
+      logger: this.logger,
+      timeZone: () => this.config?.timezone,
+    });
     this.groupsById = new Map();
+    this.groupDocIds = new Set();
     this.groupMetadataCache = new Map();
     this.contactsMap = new Map();
     this.aiMemory = new Map();
     this.recentlyBanned = new Map();
     this.socket = null;
+    this.authState = null;
     this.config = null;
     this.status = 'stopped';
     this.qr = null;
@@ -59,8 +66,6 @@ export class BotRuntime {
     this.isStopping = false;
     this.reconnectTimer = null;
     this.generation = 0;
-    this.watchers = [];
-    this.pollTimer = null;
     this.state = {
       ordenesRecibidas: 0,
       mensajesRespondidos: 0,
@@ -80,7 +85,6 @@ export class BotRuntime {
     await this.reloadGroups();
     await this.loadCounter();
     await this.loadContacts();
-    this.startWatchers();
   }
 
   async loadContacts() {
@@ -164,74 +168,96 @@ export class BotRuntime {
     return this.config;
   }
 
+  // Fusiona un documento de grupo con el que ya está en memoria:
+  // - conserva la identidad del objeto, porque los modos guardan la referencia
+  //   mientras envían una respuesta;
+  // - conserva el contador en memoria si es mayor, porque la cola de escritura
+  //   persiste los incrementos con retraso y una recarga no debe retrocederlo
+  //   (evita que se supere el límite de un grupo). Los cambios explícitos del
+  //   contador llegan por setGroupCounter().
+  mergeGroup(doc) {
+    const parsed = normalizeGroupDoc(doc);
+    const current = this.groupsById.get(parsed.groupId);
+    if (!current) return parsed;
+    const memoryAhead = Number(current.contador || 0) > Number(parsed.contador || 0);
+    const contador = memoryAhead ? Number(current.contador || 0) : Number(parsed.contador || 0);
+    // Si la base aún no refleja la última respuesta, tampoco refleja que el
+    // grupo se desactivó al llegar a su límite: se respeta la memoria.
+    const responder = memoryAhead && current.responder === false ? false : parsed.responder;
+    return Object.assign(current, parsed, { contador, responder });
+  }
+
+  cacheGroupMetadata(group) {
+    // Metadata sin participantes no reemplaza a una más completa ya en memoria.
+    if (Array.isArray(group.metadata?.participants) || !this.groupMetadataCache.has(group.groupId)) {
+      this.groupMetadataCache.set(group.groupId, group.metadata);
+    }
+  }
+
   async reloadGroups() {
-    const groups = await this.collections.groups.find({ accountId: this.accountId }).toArray();
-    this.groupsById.clear();
+    const docs = await this.collections.groups.find({ accountId: this.accountId }).toArray();
+    const next = new Map();
+    const docIds = new Set();
+    for (const doc of docs) {
+      const group = this.mergeGroup(doc);
+      next.set(group.groupId, group);
+      docIds.add(String(doc._id));
+      this.cacheGroupMetadata(group);
+    }
+    const previousTotal = this.groupsById.size;
+    for (const groupId of this.groupsById.keys()) {
+      if (!next.has(groupId)) this.groupsById.delete(groupId);
+    }
+    for (const [groupId, group] of next) this.groupsById.set(groupId, group);
+    this.groupDocIds = docIds;
     this.directorySnapshot = null;
-    for (const g of groups) {
-      const parsed = normalizeGroupDoc(g);
-      this.groupsById.set(parsed.groupId, parsed);
-      if (parsed.metadata) this.groupMetadataCache.set(parsed.groupId, parsed.metadata);
-    }
-    this.logger.info('runtime', 'Grupos cargados en memoria', { total: this.groupsById.size });
-  }
-
-  startWatchers() {
-    if (this.watchers.length || this.pollTimer) return;
-    const watchCollection = (collection, name, onChange) => {
-      try {
-        const stream = collection.watch([{ $match: { 'fullDocument.accountId': this.accountId } }], { fullDocument: 'updateLookup' });
-        stream.on('change', onChange);
-        stream.on('error', (err) => {
-          this.logger.warn('mongo', `Change stream ${name} falló; usando polling`, { error: err.message });
-          this.startPollingFallback();
-        });
-        stream.on('close', () => this.logger.warn('mongo', `Change stream ${name} cerrado`));
-        this.watchers.push(stream);
-      } catch (err) {
-        this.logger.warn('mongo', `No se pudo iniciar change stream ${name}; usando polling`, { error: err.message });
-        this.startPollingFallback();
-      }
-    };
-
-    watchCollection(this.collections.configs, 'configs', async (change) => {
-      if (change.fullDocument?.accountId !== this.accountId) return;
-      await this.reloadConfig();
-      this.logger.info('config', 'Configuración recargada', { modo: this.config.modo, respuestas: this.config.respuestas });
-    });
-
-    try {
-      const stream = this.collections.groups.watch([], { fullDocument: 'updateLookup' });
-      stream.on('change', async (change) => {
-        const full = change.fullDocument;
-        if (full && full.accountId !== this.accountId) return;
-        if (change.operationType === 'delete' || !full) {
-          await this.reloadGroups();
-          return;
-        }
-        const parsed = normalizeGroupDoc(full);
-        this.groupsById.set(parsed.groupId, parsed);
-        this.logger.info('groups', 'Grupo actualizado en memoria', { groupId: parsed.groupId });
-      });
-      stream.on('error', (err) => {
-        this.logger.warn('mongo', 'Change stream groups falló; usando polling', { error: err.message });
-        this.startPollingFallback();
-      });
-      this.watchers.push(stream);
-    } catch (err) {
-      this.logger.warn('mongo', 'No se pudo iniciar change stream groups; usando polling', { error: err.message });
-      this.startPollingFallback();
+    this.releaseStaleIndependentLock();
+    if (previousTotal !== this.groupsById.size) {
+      this.logger.info('runtime', 'Grupos cargados en memoria', { total: this.groupsById.size });
     }
   }
 
-  startPollingFallback() {
-    if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => {
-      Promise.all([this.reloadConfig(), this.reloadGroups()]).catch((err) => {
-        this.logger.warn('mongo', 'Polling de configuración falló', { error: err.message });
-      });
-    }, 5000);
-    this.pollTimer.unref?.();
+  // Aplica un cambio individual recibido por el change stream.
+  applyGroupDocument(doc) {
+    const group = this.mergeGroup(doc);
+    this.groupsById.set(group.groupId, group);
+    this.groupDocIds.add(String(doc._id));
+    this.cacheGroupMetadata(group);
+    this.directorySnapshot = null;
+    this.releaseStaleIndependentLock();
+  }
+
+  ownsGroupDocument(docId) {
+    return this.groupDocIds.has(String(docId));
+  }
+
+  // Cambio explícito del contador desde el panel (reiniciar o editar).
+  setGroupCounter(groupId, value) {
+    const group = this.groupsById.get(groupId);
+    if (!group) return;
+    group.contador = Math.max(0, Number(value) || 0);
+    this.queue.dropGroupIncrements(groupId);
+    this.releaseStaleIndependentLock();
+  }
+
+  // El candado de grupos independientes solo tiene sentido mientras el grupo
+  // que lo tiene sigue activo, independiente, con límite y sin alcanzarlo.
+  // Si el grupo se desactivó, se borró o cambió desde el panel, se libera para
+  // que otro grupo independiente pueda responder.
+  releaseStaleIndependentLock() {
+    const lockGroupId = this.state.independentLockGroupId;
+    if (!lockGroupId) return;
+    const group = this.groupsById.get(lockGroupId);
+    const limit = group?.limite;
+    const stillValid = !!group
+      && group.responder
+      && group.independiente
+      && limit !== null
+      && Number.isFinite(Number(limit))
+      && Number(group.contador || 0) < Number(limit);
+    if (stillValid) return;
+    this.state.independentLockGroupId = null;
+    this.logger.info('runtime', 'Candado de grupo independiente liberado', { groupId: lockGroupId });
   }
 
   async updateStatus(status, extra = {}) {
@@ -262,11 +288,15 @@ export class BotRuntime {
     try {
       await this.collections.configs.updateOne({ accountId: this.accountId }, { $set: { activo: true, updatedAt: now() } });
       this.config.activo = true;
-      this.startWatchers();
       const isReconnecting = (this.status === 'reconnecting');
       await this.updateStatus(isReconnecting ? 'reconnecting' : 'starting', { qr: null });
 
-      const { state, saveCreds } = await useMongoDBAuthState(this.collections.whatsappSessions, this.accountId);
+      // La sesión se carga una vez y se reutiliza en cada reconexión: la caché en
+      // memoria es la fuente de verdad y MongoDB se actualiza en orden detrás.
+      if (!this.authState) {
+        this.authState = await useMongoDBAuthState(this.collections.whatsappSessions, this.accountId);
+      }
+      const { state, saveCreds } = this.authState;
       // Use the internal Baileys version — fetchLatestBaileysVersion returns a version that WhatsApp
       // may reject with 408 (connectionLost) when the bundled Baileys is behind. Passing undefined
       // lets the library use its own hardcoded stable version.
@@ -618,11 +648,18 @@ export class BotRuntime {
       }
       await this.chatStore.upsertGroup(groupId, { ...normalized, pictureUrl });
 
-      // Save full meta in main groups collection to persist across restarts
+      // Guardar la metadata completa para que sobreviva a reinicios.
       await this.collections.groups.updateOne(
         { accountId: this.accountId, groupId },
-        { $set: { metadata: meta, nombre: meta.subject || groupId, updatedAt: new Date() } }
+        { $set: { metadata: meta, updatedAt: new Date() } },
       ).catch(() => null);
+      // El nombre de WhatsApp solo se usa si el usuario no le puso uno propio.
+      if (meta.subject) {
+        await this.collections.groups.updateOne(
+          { accountId: this.accountId, groupId, nombre: { $in: ['', 'Sin nombre', groupId, null] } },
+          { $set: { nombre: meta.subject } },
+        ).catch(() => null);
+      }
     } catch (err) {
       this.logger.debug('metadata', 'No se pudo obtener metadata del grupo', { groupId, error: err.message });
     }
@@ -666,19 +703,10 @@ export class BotRuntime {
     ++this.generation;
     await this.stopSocketOnly();
 
-    // Close all MongoDB Change Streams to prevent resource leaks
-    for (const watcher of this.watchers) {
-      try { await watcher.close(); } catch { /* already closed */ }
-    }
-    this.watchers = [];
-
-    // Stop polling fallback timer if active
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-
-    await this.queue.flush().catch(() => null);
+    await Promise.all([
+      this.queue.flush().catch(() => null),
+      this.authState?.flush(),
+    ]);
     this.qr = null;
     
     if (reason !== 'server_shutdown') {
@@ -710,16 +738,11 @@ export class BotRuntime {
     try { await sock?.logout?.(); } catch (err) { this.logger.warn('runtime', 'logout de Baileys falló', { error: err.message }); }
     await this.stopSocketOnly();
 
-    // Close all MongoDB Change Streams to prevent resource leaks
-    for (const watcher of this.watchers) {
-      try { await watcher.close(); } catch { /* already closed */ }
-    }
-    this.watchers = [];
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-
+    // Descartar escrituras pendientes antes de borrar la sesión para que
+    // ninguna llave vuelva a aparecer en MongoDB después del cierre.
+    await this.authState?.close();
+    this.authState = null;
+    await this.queue.flush().catch(() => null);
     await this.collections.whatsappSessions.deleteMany({ accountId: this.accountId }).catch(() => null);
     await this.collections.configs.updateOne(
       { accountId: this.accountId },
@@ -742,8 +765,8 @@ export class BotRuntime {
     };
   }
 
+  // Hay sesión solo si WhatsApp ya fue vinculado (las credenciales tienen "me").
   async hasSavedSession() {
-    const doc = await this.collections.whatsappSessions.findOne({ accountId: this.accountId, key: 'creds' });
-    return !!doc?.data;
+    return hasRegisteredCreds(this.collections.whatsappSessions, this.accountId);
   }
 }

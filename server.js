@@ -4,9 +4,11 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { connectDB, closeDB, getCollections, ensureIndexes } from './src/db/mongo.js';
+import { runDataMigrations } from './src/db/migrations.js';
 import { RuntimeRegistry } from './src/core/runtime-registry.js';
+import { APP_VERSION } from './src/core/app-info.js';
 import { createMainRouter } from './src/routes/main.routes.js';
-import { createAuthRouter, requirePanelAuth } from './src/routes/auth.middleware.js';
+import { createAuthRouter, homePathFor, requirePanelAuth, routePagesByRole } from './src/routes/auth.middleware.js';
 import { createAdminRouter } from './src/routes/admin.routes.js';
 import rateLimit from 'express-rate-limit';
 import { MessageScheduler } from './src/services/message-scheduler.js';
@@ -20,9 +22,11 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
+// Límite general amplio: el panel consulta estado, logs y estadísticas de forma
+// periódica. La protección contra fuerza bruta está en authLimiter.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 1500,
   message: { error: 'Demasiadas peticiones, por favor intenta más tarde.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -71,10 +75,12 @@ app.use((req, res, next) => {
 const db = await connectDB();
 await ensureIndexes(db);
 const collections = getCollections(db);
+await runDataMigrations(collections);
 const registry = new RuntimeRegistry({ collections });
 const scheduler = new MessageScheduler({ collections, registry });
 scheduler.start();
 
+app.get('/api/health', (req, res) => res.json({ ok: true, version: APP_VERSION }));
 app.use('/css', express.static(path.join(publicDir, 'css')));
 app.get('/js/auth.js', (req, res) => res.sendFile(path.join(publicDir, 'js', 'auth.js')));
 app.use(createAuthRouter({ collections }));
@@ -82,46 +88,49 @@ app.get('/login.html', (req, res) => res.sendFile(path.join(publicDir, 'login.ht
 app.get('/register.html', (req, res) => res.sendFile(path.join(publicDir, 'register.html')));
 
 app.use(requirePanelAuth({ collections }));
+app.use(routePagesByRole);
 app.use(express.static(publicDir, { extensions: ['html'] }));
-app.use(createAdminRouter({ collections, registry }));
+app.use(createAdminRouter({ collections, registry, scheduler }));
 app.use(createMainRouter({ collections, registry, scheduler }));
 
+app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
+
 app.get('/*splat', (req, res) => {
+  const home = homePathFor(req.panelUser?.role);
+  if (home !== '/') return res.redirect(home);
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
-const server = app.listen(port, async () => {
-  console.log(`Ibot v2 listo en http://localhost:${port}`);
-  console.log(`Base MongoDB: ${process.env.MONGODB_DB || 'Ibotv2'} | Un bot por usuario`);
-  
-  const userAccounts = await collections.accounts
-    .find({ userId: { $type: 'string' } })
-    .sort({ userId: 1, createdAt: 1 })
-    .toArray();
-  const canonicalByUser = new Map();
-  for (const account of userAccounts) {
-    if (!canonicalByUser.has(account.userId)) canonicalByUser.set(account.userId, account);
-  }
-  const canonicalAccounts = [...canonicalByUser.values()];
-  for (const account of canonicalAccounts) {
-    const config = await collections.configs.findOne({ accountId: account.accountId });
-    if (config?.activo !== true) continue;
-    console.log(`[Auto-start] Iniciando bot: ${account.accountId}`);
-    registry.start(account.accountId).catch(err => {
-        console.error(`Error auto-arrancando el bot ${account.accountId}:`, err.message);
-    });
-  }
+// Errores no controlados: JSON para la API y una respuesta simple para páginas.
+app.use((err, req, res, next) => {
+  console.error(`[http] ${req.method} ${req.path}:`, err);
+  const status = err.status || err.statusCode || 500;
+  if (res.headersSent) return;
+  if (req.path.startsWith('/api/')) return res.status(status).json({ error: status >= 500 ? 'Error interno del servidor' : err.message });
+  res.status(status).send('Error interno del servidor');
 });
 
-async function shutdown(signal) {
-  console.log(`Recibido ${signal}. Cerrando Ibot v2...`);
-  server.close(async () => {
-    scheduler.stop();
-    await registry.stopAll('server_shutdown');
-    await closeDB();
-    process.exit(0);
+const server = app.listen(port, () => {
+  console.log(`Ibot v${APP_VERSION} listo en http://localhost:${port}`);
+  console.log(`Base MongoDB: ${process.env.MONGODB_DB || 'Ibotv2'}`);
+  registry.resumeActiveAccounts().catch((err) => {
+    console.error('No se pudieron reanudar las cuentas activas:', err.message);
   });
+});
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Recibido ${signal}. Cerrando Ibot...`);
   setTimeout(() => process.exit(1), 10000).unref();
+  // Las conexiones SSE (logs y chats en vivo) nunca terminan solas.
+  server.close();
+  server.closeAllConnections();
+  scheduler.stop();
+  await registry.stopAll('server_shutdown');
+  await closeDB().catch(() => null);
+  process.exit(0);
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));

@@ -1,153 +1,156 @@
 import { Router } from 'express';
-import { createPanelUser, requirePanelOwner, validatePassword, hashPassword } from './auth.middleware.js';
+import {
+  ROLE_ACCOUNT,
+  createPanelUser,
+  createSessionCookie,
+  requirePanelOwner,
+  setSessionCookie,
+  setUserPassword,
+  verifyPassword,
+} from './auth.middleware.js';
+import {
+  assertOrphanAccount,
+  assignAccountToUser,
+  buildOverview,
+  buildStats,
+  deleteUserWithData,
+  systemInfo,
+} from '../services/admin-service.js';
+import { getSystemSettings, updateSystemSettings } from '../services/settings-service.js';
 
-async function countByAccount(collection) {
-  const rows = await collection.aggregate([
-    { $group: { _id: '$accountId', count: { $sum: 1 } } },
-  ]).toArray();
-  return new Map(rows.map((row) => [row._id, row.count]));
+const ACCOUNT_ACTIONS = new Set(['start', 'stop', 'logout']);
+
+// Envuelve un handler async y responde los errores en JSON.
+function handle(fn) {
+  return async (req, res) => {
+    try {
+      await fn(req, res);
+    } catch (error) {
+      const status = error?.code === 11000 ? 409 : (error?.status || 500);
+      const message = error?.code === 11000 ? 'Ese usuario ya existe.' : (error?.message || 'Error interno');
+      if (status >= 500) console.error('[admin] Error:', error);
+      res.status(status).json({ error: message });
+    }
+  };
 }
 
-export function createAdminRouter({ collections, registry }) {
+async function findAccountUser(collections, username) {
+  const user = await collections.users.findOne({ username: String(username || '').toLowerCase() });
+  if (!user) throw Object.assign(new Error('Usuario no encontrado.'), { status: 404 });
+  if (user.role === 'owner') {
+    throw Object.assign(new Error('Los administradores se gestionan desde "Mi cuenta".'), { status: 403 });
+  }
+  return user;
+}
+
+export function createAdminRouter({ collections, registry, scheduler }) {
   const router = Router();
   router.use('/api/admin', requirePanelOwner);
 
-  // GET /api/admin/overview — Resumen de todas las cuentas
-  router.get('/api/admin/overview', async (req, res, next) => {
-    try {
-      const [users, accounts, configs, groupCounts, contactCounts, messageCounts, scheduledCounts] = await Promise.all([
-        collections.users.find({}, { projection: { password: 0 } }).sort({ createdAt: 1 }).toArray(),
-        collections.accounts.find({}).toArray(),
-        collections.configs.find({}).toArray(),
-        countByAccount(collections.groups),
-        countByAccount(collections.contacts),
-        countByAccount(collections.chatMessages),
-        countByAccount(collections.scheduledMessages),
-      ]);
-      const accountsByUser = new Map(accounts.map((account) => [String(account.userId), account]));
-      const configsByAccount = new Map(configs.map((config) => [config.accountId, config]));
-      const rows = users.map((user) => {
-        const account = accountsByUser.get(String(user._id));
-        const config = account ? configsByAccount.get(account.accountId) : null;
-        return {
-          username: user.username,
-          role: user.role || 'account',
-          createdAt: user.createdAt,
-          lastLoginAt: user.lastLoginAt || null,
-          account: account ? {
-            accountId: account.accountId,
-            label: account.label,
-            status: account.status || 'stopped',
-            phoneName: account.phoneName || null,
-            phoneJid: account.phoneJid || null,
-            active: config?.activo === true,
-            respuestas: config?.respuestas === true,
-            mode: config?.modo || 'normal',
-            groups: groupCounts.get(account.accountId) || 0,
-            contacts: contactCounts.get(account.accountId) || 0,
-            messages: messageCounts.get(account.accountId) || 0,
-            scheduled: scheduledCounts.get(account.accountId) || 0,
-          } : null,
-        };
-      });
-      res.json({
-        summary: {
-          users: rows.length,
-          connected: rows.filter((row) => row.account?.status === 'connected').length,
-          configuredGroups: [...groupCounts.values()].reduce((total, value) => total + value, 0),
-          observedMessages: [...messageCounts.values()].reduce((total, value) => total + value, 0),
-        },
-        users: rows,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
+  // ─── Resumen y estadísticas ────────────────────────────────────────────
+  router.get('/api/admin/overview', handle(async (req, res) => {
+    res.json(await buildOverview({ collections, registry }));
+  }));
 
-  // POST /api/admin/users — Crear nueva cuenta de usuario
-  router.post('/api/admin/users', async (req, res) => {
+  router.get('/api/admin/stats', handle(async (req, res) => {
+    res.json(await buildStats({ collections, registry, days: req.query.days }));
+  }));
+
+  router.get('/api/admin/system', handle(async (req, res) => {
+    res.json(systemInfo({ registry, scheduler }));
+  }));
+
+  // ─── Configuración del sistema ─────────────────────────────────────────
+  router.get('/api/admin/settings', handle(async (req, res) => {
+    res.json(await getSystemSettings(collections));
+  }));
+
+  router.put('/api/admin/settings', handle(async (req, res) => {
     try {
-      const user = await createPanelUser(collections, {
+      res.json(await updateSystemSettings(collections, req.body || {}));
+    } catch (error) {
+      throw Object.assign(error, { status: error.status || 400 });
+    }
+  }));
+
+  // ─── Usuarios ──────────────────────────────────────────────────────────
+  router.post('/api/admin/users', handle(async (req, res) => {
+    const assignAccountId = String(req.body?.assignAccountId || '').trim();
+    if (assignAccountId) await assertOrphanAccount(collections, assignAccountId);
+    let user;
+    try {
+      user = await createPanelUser(collections, {
         username: req.body?.username,
         password: req.body?.password,
-        role: 'account',
+        role: ROLE_ACCOUNT,
       });
-      res.status(201).json({ ok: true, user: { username: user.username, role: user.role } });
     } catch (error) {
-      const status = error?.code === 11000 ? 409 : 400;
-      res.status(status).json({ error: error.message || 'No se pudo crear la cuenta.' });
+      throw Object.assign(error, { status: error.status || 400 });
     }
-  });
+    if (assignAccountId) await assignAccountToUser({ collections, accountId: assignAccountId, user });
+    res.status(201).json({ ok: true, user: { username: user.username } });
+  }));
 
-  // DELETE /api/admin/users/:username — Eliminar cuenta y todos sus datos
-  router.delete('/api/admin/users/:username', async (req, res) => {
-    const { username } = req.params;
-    if (username === req.panelUser?.username) {
-      return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta de propietario.' });
-    }
-    try {
-      const user = await collections.users.findOne({ username });
-      if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
-      if (user.role === 'owner') return res.status(403).json({ error: 'No se puede eliminar una cuenta de propietario.' });
+  router.delete('/api/admin/users/:username', handle(async (req, res) => {
+    const user = await findAccountUser(collections, req.params.username);
+    await deleteUserWithData({ collections, registry, user });
+    res.json({ ok: true });
+  }));
 
+  router.put('/api/admin/users/:username/password', handle(async (req, res) => {
+    const user = await findAccountUser(collections, req.params.username);
+    await setUserPassword(collections, { _id: user._id }, req.body?.password);
+    res.json({ ok: true });
+  }));
+
+  // Suspender cierra todas las sesiones del usuario y apaga su WhatsApp.
+  router.post('/api/admin/users/:username/status', handle(async (req, res) => {
+    const user = await findAccountUser(collections, req.params.username);
+    const disabled = req.body?.disabled === true;
+    await collections.users.updateOne(
+      { _id: user._id },
+      { $set: { disabled, updatedAt: new Date() }, ...(disabled ? { $inc: { sessionVersion: 1 } } : {}) },
+    );
+    if (disabled) {
       const account = await collections.accounts.findOne({ userId: String(user._id) });
-      if (account) {
-        // Detener y desconectar el bot antes de limpiar datos
-        await registry.stop(account.accountId, 'admin_delete').catch(() => null);
-        await registry.logout(account.accountId).catch(() => null);
-        await Promise.all([
-          collections.accounts.deleteMany({ userId: String(user._id) }),
-          collections.configs.deleteMany({ accountId: account.accountId }),
-          collections.groups.deleteMany({ accountId: account.accountId }),
-          collections.contacts.deleteMany({ accountId: account.accountId }),
-          collections.chatMessages.deleteMany({ accountId: account.accountId }),
-          collections.scheduledMessages.deleteMany({ accountId: account.accountId }),
-          collections.counters.deleteMany({ accountId: account.accountId }),
-          collections.whatsappSessions.deleteMany({ accountId: account.accountId }),
-        ]);
+      if (account && registry.isRunning(account.accountId)) {
+        await registry.stop(account.accountId, 'admin_suspend');
       }
-      await collections.users.deleteOne({ _id: user._id });
-      res.json({ ok: true });
-    } catch (error) {
-      res.status(500).json({ error: error.message || 'No se pudo eliminar la cuenta.' });
     }
-  });
+    res.json({ ok: true, disabled });
+  }));
 
-  // PUT /api/admin/users/:username/password — Cambiar contraseña de cualquier cuenta
-  router.put('/api/admin/users/:username/password', async (req, res) => {
-    const { username } = req.params;
-    const { password } = req.body || {};
-    try {
-      const err = validatePassword(password);
-      if (err) return res.status(400).json({ error: err });
-      const result = await collections.users.updateOne(
-        { username },
-        { $set: { password: hashPassword(password), updatedAt: new Date() } },
-      );
-      if (result.matchedCount === 0) return res.status(404).json({ error: 'Usuario no encontrado.' });
-      res.json({ ok: true });
-    } catch (error) {
-      res.status(400).json({ error: error.message || 'No se pudo cambiar la contraseña.' });
-    }
-  });
+  // ─── Cuentas de WhatsApp ───────────────────────────────────────────────
+  router.post('/api/admin/accounts/:accountId/assign', handle(async (req, res) => {
+    const user = await findAccountUser(collections, req.body?.username);
+    await assignAccountToUser({ collections, accountId: req.params.accountId, user });
+    res.json({ ok: true });
+  }));
 
-  // POST /api/admin/accounts/:accountId/:action — Controlar bot (start/stop/logout)
-  router.post('/api/admin/accounts/:accountId/:action', async (req, res) => {
+  router.post('/api/admin/accounts/:accountId/:action', handle(async (req, res) => {
     const { accountId, action } = req.params;
-    if (!['start', 'stop', 'logout'].includes(action)) return res.status(400).json({ error: 'Acción inválida.' });
-    try {
-      const account = await collections.accounts.findOne({ accountId });
-      if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
-      const status = action === 'start'
-        ? await registry.start(accountId)
-        : action === 'stop'
-          ? await registry.stop(accountId, 'admin_stop')
-          : await registry.logout(accountId);
-      res.json({ ok: true, status });
-    } catch (error) {
-      res.status(400).json({ error: error.message || 'No se pudo controlar la cuenta.' });
+    if (!ACCOUNT_ACTIONS.has(action)) return res.status(400).json({ error: 'Acción inválida.' });
+    const account = await collections.accounts.findOne({ accountId });
+    if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+    const status = action === 'start'
+      ? await registry.start(accountId)
+      : action === 'stop'
+        ? await registry.stop(accountId, 'admin_stop')
+        : await registry.logout(accountId);
+    res.json({ ok: true, status });
+  }));
+
+  // ─── Cuenta del administrador ──────────────────────────────────────────
+  router.put('/api/admin/me/password', handle(async (req, res) => {
+    const me = await collections.users.findOne({ username: req.panelUser.username });
+    if (!me || !verifyPassword(String(req.body?.currentPassword || ''), me)) {
+      return res.status(400).json({ error: 'La contraseña actual no es correcta.' });
     }
-  });
+    const updated = await setUserPassword(collections, { _id: me._id }, req.body?.password);
+    // Las demás sesiones quedan cerradas; esta se renueva.
+    setSessionCookie(res, createSessionCookie(updated));
+    res.json({ ok: true });
+  }));
 
   return router;
 }

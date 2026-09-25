@@ -36,7 +36,7 @@ export class DeepSeekClient {
       }
       return String(data?.choices?.[0]?.message?.content || '').trim();
     } catch (error) {
-      if (error?.name === 'AbortError') throw new Error('La solicitud a DeepSeek excedió el tiempo máximo');
+      if (error?.name === 'AbortError') throw new Error('La solicitud a DeepSeek excedió el tiempo máximo', { cause: error });
       throw error;
     } finally {
       clearTimeout(timer);

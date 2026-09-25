@@ -2,272 +2,405 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Ibot — Administración</title>
-  <meta name="description" content="Panel de administración de cuentas del bot de WhatsApp Ibot.">
-  <link rel="stylesheet" href="/css/styles.css">
-  <style>
-    :root { --container-max: 1200px; }
-
-    /* ── KPI Grid ── */
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-      margin-bottom: 24px;
-    }
-    .kpi-card {
-      padding: 18px 20px;
-      background: var(--panel);
-      border: 1px solid var(--border-soft);
-      border-radius: var(--card-radius);
-      backdrop-filter: blur(14px);
-      position: relative;
-      overflow: hidden;
-      transition: var(--transition);
-    }
-    .kpi-card:hover { border-color: rgba(0,229,255,.2); transform: translateY(-2px); }
-    .kpi-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, var(--accent), #0088ff);
-      opacity: 0;
-      transition: opacity .3s;
-    }
-    .kpi-card:hover::before { opacity: 1; }
-    .kpi-icon { font-size: 22px; margin-bottom: 10px; }
-    .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 4px; }
-    .kpi-value { font-size: 28px; font-weight: 900; color: #fff; line-height: 1; }
-    .kpi-value.accent { color: var(--accent); }
-    .kpi-value.green { color: var(--success); }
-
-    /* ── Layout Principal ── */
-    .admin-layout {
-      display: grid;
-      grid-template-columns: 1fr 360px;
-      gap: 20px;
-      align-items: start;
-    }
-
-    /* ── Barra de herramientas de la lista ── */
-    .list-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-    .list-toolbar-title {
-      font-size: 15px;
-      font-weight: 800;
-      color: #fff;
-    }
-    .list-toolbar-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    .refresh-btn {
-      background: rgba(255,255,255,.05);
-      border: 1px solid var(--border-soft);
-      border-radius: 10px;
-      color: var(--muted);
-      padding: 7px 12px;
-      cursor: pointer;
-      font-size: 13px;
-      font-family: inherit;
-      transition: var(--transition);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .refresh-btn:hover { background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.15); }
-    .refresh-btn.spinning svg { animation: spin-icon .7s linear infinite; }
-    @keyframes spin-icon { to { transform: rotate(360deg); } }
-
-    /* ── Account Cards ── */
-    .account-list { display: flex; flex-direction: column; gap: 12px; }
-
-    .account-card {
-      background: var(--panel);
-      border: 1px solid var(--border-soft);
-      border-radius: var(--card-radius);
-      padding: 16px 18px;
-      backdrop-filter: blur(14px);
-      transition: var(--transition);
-      position: relative;
-      overflow: hidden;
-    }
-    .account-card:hover { border-color: rgba(255,255,255,.14); }
-    .account-card.is-owner { border-color: rgba(0,229,255,.2); }
-    .account-card.is-owner::after {
-      content: 'OWNER';
-      position: absolute;
-      top: 14px; right: 14px;
-      font-size: 9px; font-weight: 900;
-      letter-spacing: 1px;
-      padding: 3px 8px;
-      border-radius: 20px;
-      background: rgba(0,229,255,.12);
-      border: 1px solid rgba(0,229,255,.3);
-      color: var(--accent);
-    }
-
-    .ac-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-    .ac-avatar {
-      width: 44px; height: 44px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #1a2036 0%, #111620 100%);
-      border: 1px solid rgba(255,255,255,.07);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; font-weight: 800; color: var(--accent);
-      flex-shrink: 0;
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .ac-info { min-width: 0; flex: 1; }
-    .ac-name { font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ac-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-
-    .ac-status-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
-    .badge {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 4px 9px;
-      border-radius: 20px;
-      font-size: 11px; font-weight: 700;
-      border: 1px solid transparent;
-    }
-    .badge-connected { background: rgba(57,255,20,.08); border-color: rgba(57,255,20,.3); color: #39ff14; }
-    .badge-stopped { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); color: var(--muted); }
-    .badge-error { background: rgba(255,23,68,.08); border-color: rgba(255,23,68,.3); color: var(--danger); }
-    .badge-logged_out { background: rgba(255,152,0,.08); border-color: rgba(255,152,0,.3); color: #ff9800; }
-    .badge-mode { background: rgba(0,136,255,.08); border-color: rgba(0,136,255,.25); color: #60a5fa; }
-    .badge-neutral { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.08); color: var(--muted); }
-    .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; display: inline-block; }
-
-    .ac-metrics { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
-    .ac-metric { display: flex; flex-direction: column; }
-    .ac-metric-val { font-size: 16px; font-weight: 800; color: #fff; }
-    .ac-metric-lbl { font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; margin-top: 1px; }
-
-    .ac-divider { height: 1px; background: var(--border-soft); margin-bottom: 12px; }
-
-    .ac-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .ac-btn {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 7px 13px;
-      border-radius: 10px;
-      font-size: 12px; font-weight: 700;
-      cursor: pointer;
-      border: 1px solid transparent;
-      font-family: inherit;
-      transition: var(--transition);
-    }
-    .ac-btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
-    .ac-btn-start { background: rgba(57,255,20,.08); border-color: rgba(57,255,20,.3); color: #39ff14; }
-    .ac-btn-start:hover { background: rgba(57,255,20,.18); transform: translateY(-1px); }
-    .ac-btn-stop { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); color: #e0e0e0; }
-    .ac-btn-stop:hover { background: rgba(255,255,255,.1); transform: translateY(-1px); }
-    .ac-btn-logout { background: rgba(255,152,0,.07); border-color: rgba(255,152,0,.25); color: #ff9800; }
-    .ac-btn-logout:hover { background: rgba(255,152,0,.15); transform: translateY(-1px); }
-    .ac-btn-pwd { background: rgba(0,229,255,.06); border-color: rgba(0,229,255,.2); color: var(--accent); }
-    .ac-btn-pwd:hover { background: rgba(0,229,255,.14); transform: translateY(-1px); }
-    .ac-btn-delete { background: rgba(255,23,68,.07); border-color: rgba(255,23,68,.25); color: var(--danger); }
-    .ac-btn-delete:hover { background: rgba(255,23,68,.16); transform: translateY(-1px); }
-    .ac-no-account { font-size: 12px; color: var(--muted); font-style: italic; }
-
-    .last-login { font-size: 11px; color: #525a72; margin-top: 8px; }
-
-    /* ── Panel lateral (crear cuenta) ── */
-    .side-panel { position: sticky; top: 80px; }
-    .side-panel-title { font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 4px; }
-    .side-panel-sub { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
-    .form-stack { display: flex; flex-direction: column; gap: 14px; }
-    .form-field-label { font-size: 12px; font-weight: 700; color: var(--muted); display: block; margin-bottom: 6px; }
-    .pwd-hint { font-size: 11px; color: #525a72; margin-top: 5px; line-height: 1.4; }
-    .form-error { font-size: 12px; color: var(--danger); margin-top: -6px; min-height: 16px; }
-
-    /* ── Modal ── */
-    #pwdModal .modal-card { width: min(440px,100%); }
-    .modal-title { font-size: 17px; font-weight: 800; color: #fff; margin-bottom: 4px; }
-    .modal-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
-    .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
-    .modal-actions .btn { flex: 1; }
-
-    /* ── Access denied ── */
-    .access-denied { max-width: 480px; margin: 80px auto; text-align: center; }
-    .access-denied .title { margin-bottom: 10px; }
-    .access-denied p { color: var(--muted); font-size: 14px; }
-
-    /* ── Empty state ── */
-    .empty-state { text-align: center; padding: 50px 20px; color: var(--muted); }
-    .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
-
-    /* ── Responsive ── */
-    @media (max-width: 900px) {
-      .admin-layout { grid-template-columns: 1fr; }
-      .side-panel { position: static; }
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-    }
-    @media (max-width: 480px) {
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-      .ac-metrics { gap: 10px; }
-    }
-  </style>
+  <meta name="description" content="Panel de administración de Ibot: usuarios, conexiones de WhatsApp, estadísticas y configuración.">
+  <link rel="stylesheet" href="/css/admin.css">
 </head>
 <body>
-  <header class="topnav">
-    <div class="top-inner">
-      <div class="brand">
-        <div class="logo">IB</div>
+  <div class="admin-shell" id="shell">
+    <aside class="sidebar" id="sidebar" aria-label="Navegación de administración">
+      <div class="sidebar-brand">
+        <div class="brand-mark">IB</div>
         <div>
-          <div style="font-weight:800;font-size:15px;line-height:1.1;">Ibot Admin</div>
-          <div style="font-size:11px;color:var(--muted);line-height:1.1;">Panel de Administración</div>
+          <div class="brand-name">Ibot</div>
+          <div class="brand-sub">Administración</div>
         </div>
       </div>
-      <nav class="top-links">
-        <a href="/admin.html" class="active" title="Administración">🛡️ Admin</a>
-        <a href="/" title="Panel del Bot">🤖 Bot</a>
-        <a href="/grupos.html" title="Grupos">👥 Grupos</a>
-        <a href="/configuracion.html" title="Configuración">⚙️ Config</a>
-        <a href="/logs.html" title="Logs">📜 Logs</a>
-        <button id="panelLogoutBtn" class="linklike" type="button" title="Cerrar sesión" style="filter:drop-shadow(0 0 2px rgba(255,23,68,.85));">🚪</button>
-      </nav>
-    </div>
-  </header>
 
-  <main>
-    <div class="container" id="adminApp">
-      <div class="panel" style="text-align:center;padding:60px 20px;">
-        <div style="width:40px;height:40px;border:3px solid rgba(0,229,255,.15);border-top-color:var(--accent);border-radius:50%;animation:spin-icon .8s linear infinite;margin:0 auto 16px;"></div>
-        <div style="color:var(--muted);font-size:14px;">Cargando panel de administración…</div>
-      </div>
-    </div>
-  </main>
+      <div class="nav-label">General</div>
+      <a class="nav-item" href="#resumen" data-section="resumen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
+        Resumen
+      </a>
+      <a class="nav-item" href="#usuarios" data-section="usuarios">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Usuarios
+        <span class="nav-badge" id="navUsersCount">0</span>
+      </a>
+      <a class="nav-item" href="#conexiones" data-section="conexiones">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+        Conexiones WhatsApp
+        <span class="nav-badge" id="navConnectedCount">0</span>
+      </a>
 
-  <!-- Modal cambiar contraseña -->
-  <div id="pwdModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pwdModalTitle">
-    <div class="modal-card">
-      <div class="modal-title" id="pwdModalTitle">Cambiar contraseña</div>
-      <div class="modal-sub" id="pwdModalSub">Elige una contraseña fuerte para la cuenta.</div>
-      <div class="form-stack">
-        <div>
-          <label class="form-field-label" for="newPwdInput">Nueva contraseña</label>
-          <input id="newPwdInput" type="password" placeholder="Mínimo 12 caracteres" autocomplete="new-password">
-          <div class="pwd-hint">Mínimo 12 caracteres · Mayúsculas, minúsculas y números</div>
+      <div class="nav-label">Sistema</div>
+      <a class="nav-item" href="#configuracion" data-section="configuracion">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Configuración
+      </a>
+      <a class="nav-item" href="#cuenta" data-section="cuenta">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Mi cuenta
+      </a>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="avatar" id="adminAvatar">A</div>
+          <div>
+            <div class="name" id="adminName">Administrador</div>
+            <div class="role">Administrador</div>
+          </div>
         </div>
-        <div>
-          <label class="form-field-label" for="confirmPwdInput">Confirmar contraseña</label>
-          <input id="confirmPwdInput" type="password" placeholder="Repite la contraseña" autocomplete="new-password">
-        </div>
-        <p id="pwdModalError" class="form-error"></p>
+        <button class="nav-item" type="button" id="logoutBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+          Cerrar sesión
+        </button>
       </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="btn icon menu-toggle" type="button" id="menuToggle" aria-label="Abrir menú">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <div>
+          <h1 id="sectionTitle">Resumen</h1>
+          <div class="subtitle" id="sectionSubtitle">Actividad general del sistema</div>
+        </div>
+        <div class="spacer"></div>
+        <span class="muted" id="lastUpdated"></span>
+        <button class="btn" type="button" id="refreshBtn" title="Actualizar datos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span class="label">Actualizar</span>
+        </button>
+      </header>
+
+      <div class="loading" id="loading"><div class="spinner"></div>Cargando panel…</div>
+
+      <!-- ─── Resumen ─── -->
+      <section class="section" id="section-resumen" data-title="Resumen" data-subtitle="Actividad general del sistema">
+        <div class="kpi-grid" id="kpiGrid"></div>
+        <div class="toolbar">
+          <div class="segmented" id="rangeSelector" role="group" aria-label="Periodo de las gráficas">
+            <button type="button" data-days="7">7 días</button>
+            <button type="button" data-days="14" class="active">14 días</button>
+            <button type="button" data-days="30">30 días</button>
+          </div>
+          <span class="muted" id="rangeTimezone"></span>
+        </div>
+        <div class="stack">
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Respuestas enviadas por día</div>
+                  <div class="card-sub">Pedidos tomados por el modo normal en todas las cuentas</div>
+                </div>
+                <div class="spacer"></div>
+                <div class="chart-total" id="ordersTotal">0</div>
+              </div>
+              <div class="chart" id="ordersChart"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Mensajes observados por día</div>
+                  <div class="card-sub">Mensajes registrados por las cuentas en modo watch</div>
+                </div>
+                <div class="spacer"></div>
+                <div class="chart-total" id="observedTotal">0</div>
+              </div>
+              <div class="chart" id="observedChart"></div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Estado de las conexiones</div>
+                  <div class="card-sub">Estado actual de cada WhatsApp vinculado</div>
+                </div>
+              </div>
+              <div class="hbars" id="statusChart"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Usuarios con más respuestas</div>
+                  <div class="card-sub">Top 5 del periodo seleccionado</div>
+                </div>
+              </div>
+              <div class="hbars" id="topChart"></div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Nuevos usuarios por día</div>
+                  <div class="card-sub">Cuentas creadas en el periodo</div>
+                </div>
+                <div class="spacer"></div>
+                <div class="chart-total" id="signupsTotal">0</div>
+              </div>
+              <div class="chart" id="signupsChart"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Mensajes programados</div>
+                  <div class="card-sub">Estado de todos los envíos programados</div>
+                </div>
+              </div>
+              <div class="hbars" id="scheduledChart"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Usuarios ─── -->
+      <section class="section" id="section-usuarios" data-title="Usuarios" data-subtitle="Cuentas de las personas que usan el panel">
+        <div class="toolbar">
+          <input type="search" class="search" id="userSearch" placeholder="Buscar por usuario o número…" aria-label="Buscar usuarios">
+          <select id="userFilter" aria-label="Filtrar usuarios" style="width:auto">
+            <option value="all">Todos</option>
+            <option value="connected">WhatsApp conectado</option>
+            <option value="unlinked">Sin WhatsApp vinculado</option>
+            <option value="suspended">Suspendidos</option>
+          </select>
+          <div style="flex:1"></div>
+          <button class="btn primary" type="button" id="newUserBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Nuevo usuario
+          </button>
+        </div>
+        <div class="card" style="padding:6px 8px">
+          <div class="table-wrap">
+            <table class="data responsive">
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>WhatsApp</th>
+                  <th>Modo</th>
+                  <th class="num">Respuestas</th>
+                  <th class="num">Grupos</th>
+                  <th>Último acceso</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="usersBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Conexiones ─── -->
+      <section class="section" id="section-conexiones" data-title="Conexiones WhatsApp" data-subtitle="Estado en vivo de cada WhatsApp vinculado">
+        <div id="orphanNotice"></div>
+        <div class="card" style="padding:6px 8px">
+          <div class="table-wrap">
+            <table class="data responsive">
+              <thead>
+                <tr>
+                  <th>Cuenta</th>
+                  <th>Estado</th>
+                  <th>Número</th>
+                  <th>Modo</th>
+                  <th>Respuestas automáticas</th>
+                  <th class="num">Programados</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="connectionsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Configuración ─── -->
+      <section class="section" id="section-configuracion" data-title="Configuración" data-subtitle="Ajustes del sistema y estado del servidor">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Ajustes del sistema</div>
+                <div class="card-sub">Se aplican de inmediato a todo el panel</div>
+              </div>
+            </div>
+            <form id="settingsForm">
+              <div class="setting-row">
+                <div class="text">
+                  <div class="title">Registro público</div>
+                  <div class="hint">Permite que cualquier persona cree su cuenta desde la página de registro.</div>
+                </div>
+                <div class="control auto">
+                  <label class="switch"><input type="checkbox" id="setPublicRegistration"><span></span></label>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="text">
+                  <div class="title">Zona horaria predeterminada</div>
+                  <div class="hint">Para cuentas nuevas y para agrupar las estadísticas por día.</div>
+                </div>
+                <div class="control"><select id="setTimezone"></select></div>
+              </div>
+              <div class="setting-row">
+                <div class="text">
+                  <div class="title">Límite de usuarios</div>
+                  <div class="hint">Máximo de usuarios registrados. 0 = sin límite.</div>
+                </div>
+                <div class="control"><input type="number" id="setMaxUsers" min="0" step="1"></div>
+              </div>
+              <div class="form-error" id="settingsError"></div>
+              <div style="display:flex;justify-content:flex-end">
+                <button class="btn primary" type="submit" id="settingsSave">Guardar ajustes</button>
+              </div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Estado del servidor</div>
+                <div class="card-sub">Información del proceso y comprobaciones de seguridad</div>
+              </div>
+            </div>
+            <dl class="info-list" id="systemInfo"></dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Mi cuenta ─── -->
+      <section class="section" id="section-cuenta" data-title="Mi cuenta" data-subtitle="Tu acceso como administrador">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Cambiar contraseña</div>
+                <div class="card-sub">Al cambiarla se cierran tus sesiones en otros dispositivos</div>
+              </div>
+            </div>
+            <form id="myPasswordForm" class="form-grid">
+              <label class="field">Contraseña actual
+                <input type="password" id="myCurrentPassword" autocomplete="current-password" required>
+              </label>
+              <label class="field">Nueva contraseña
+                <input type="password" id="myNewPassword" autocomplete="new-password" required>
+                <span class="hint">Mínimo 12 caracteres, con mayúsculas, minúsculas y números.</span>
+              </label>
+              <label class="field">Confirmar nueva contraseña
+                <input type="password" id="myConfirmPassword" autocomplete="new-password" required>
+              </label>
+              <div class="form-error" id="myPasswordError"></div>
+              <div style="display:flex;justify-content:flex-end">
+                <button class="btn primary" type="submit" id="myPasswordSave">Cambiar contraseña</button>
+              </div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Administradores</div>
+                <div class="card-sub">Cuentas con acceso a este panel. Se crean con <code>pnpm create:admin</code>.</div>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data">
+                <thead><tr><th>Usuario</th><th>Creado</th><th>Último acceso</th></tr></thead>
+                <tbody id="adminsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal: nuevo usuario -->
+  <div class="modal" id="userModal" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+    <form class="modal-card" id="userForm">
+      <div class="modal-title" id="userModalTitle">Nuevo usuario</div>
+      <div class="modal-sub">El usuario entrará a su panel y vinculará su propio WhatsApp con un QR.</div>
+      <div class="form-grid">
+        <label class="field">Usuario
+          <input type="text" id="newUsername" autocomplete="off" placeholder="ej. repartidor1" required>
+          <span class="hint">3 a 32 caracteres: letras, números, punto, guion o guion bajo.</span>
+        </label>
+        <label class="field">Contraseña
+          <input type="password" id="newPassword" autocomplete="new-password" required>
+          <span class="hint">Mínimo 12 caracteres, con mayúsculas, minúsculas y números.</span>
+        </label>
+        <label class="field">Confirmar contraseña
+          <input type="password" id="newPasswordConfirm" autocomplete="new-password" required>
+        </label>
+        <label class="field" id="assignField" style="display:none">Asignar WhatsApp existente (opcional)
+          <select id="newAssignAccount"></select>
+          <span class="hint">Transfiere una cuenta sin dueño (con su sesión, grupos y configuración) al nuevo usuario.</span>
+        </label>
+      </div>
+      <div class="form-error" id="userFormError"></div>
       <div class="modal-actions">
-        <button id="pwdModalCancel" class="btn util" type="button">Cancelar</button>
-        <button id="pwdModalSave" class="btn" type="button">Guardar</button>
+        <button class="btn ghost" type="button" data-close-modal>Cancelar</button>
+        <button class="btn primary" type="submit" id="userFormSave">Crear usuario</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Modal: contraseña de un usuario -->
+  <div class="modal" id="passwordModal" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
+    <form class="modal-card" id="passwordForm">
+      <div class="modal-title" id="passwordModalTitle">Cambiar contraseña</div>
+      <div class="modal-sub" id="passwordModalSub">Las sesiones abiertas del usuario se cerrarán.</div>
+      <div class="form-grid">
+        <label class="field">Nueva contraseña
+          <input type="password" id="userNewPassword" autocomplete="new-password" required>
+          <span class="hint">Mínimo 12 caracteres, con mayúsculas, minúsculas y números.</span>
+        </label>
+        <label class="field">Confirmar contraseña
+          <input type="password" id="userNewPasswordConfirm" autocomplete="new-password" required>
+        </label>
+      </div>
+      <div class="form-error" id="passwordFormError"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" data-close-modal>Cancelar</button>
+        <button class="btn primary" type="submit" id="passwordFormSave">Guardar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Modal: asignar cuenta sin dueño -->
+  <div class="modal" id="assignModal" role="dialog" aria-modal="true" aria-labelledby="assignModalTitle">
+    <form class="modal-card" id="assignForm">
+      <div class="modal-title" id="assignModalTitle">Asignar WhatsApp a un usuario</div>
+      <div class="modal-sub" id="assignModalSub">El usuario recibirá la sesión, los grupos y la configuración de esta cuenta.</div>
+      <label class="field">Usuario
+        <select id="assignUser"></select>
+        <span class="hint">Solo aparecen usuarios que aún no tienen su propio WhatsApp.</span>
+      </label>
+      <div class="form-error" id="assignFormError"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" data-close-modal>Cancelar</button>
+        <button class="btn primary" type="submit" id="assignFormSave">Asignar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Modal: confirmación -->
+  <div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal-card">
+      <div class="modal-title" id="confirmTitle">¿Confirmar?</div>
+      <div class="modal-sub" id="confirmText"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" data-close-modal>Cancelar</button>
+        <button class="btn danger" type="button" id="confirmAccept">Confirmar</button>
       </div>
     </div>
   </div>
 
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/js/api.js"></script>
+  <script src="/js/admin-charts.js"></script>
   <script src="/js/admin.js"></script>
 </body>
 </html>

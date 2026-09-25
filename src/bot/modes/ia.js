@@ -1,6 +1,22 @@
 import { DeepSeekClient } from '../../services/deepseek-client.js';
 
-const DEFAULT_DEEPSEEK_BASE_URL = 'https://dipisik.rigorcore.com/v1';
+const DEFAULT_DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://dipisik.rigorcore.com/v1';
+const DEFAULT_DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const MAX_CACHED_CLIENTS = 50;
+const clients = new Map();
+
+// Reutiliza un cliente por combinación de credenciales y endpoint en lugar de
+// crear uno nuevo por cada mensaje.
+function clientFor({ apiKey, baseUrl, model, timeoutMs }) {
+  const cacheKey = [apiKey, baseUrl, model, timeoutMs].join('|');
+  let client = clients.get(cacheKey);
+  if (!client) {
+    if (clients.size >= MAX_CACHED_CLIENTS) clients.delete(clients.keys().next().value);
+    client = new DeepSeekClient({ apiKey, baseUrl, model, timeoutMs });
+    clients.set(cacheKey, client);
+  }
+  return client;
+}
 
 function parseCommand(text, iaConfig) {
   const trimmed = String(text || '').trim();
@@ -41,18 +57,11 @@ export async function handleIa(extracted, ctx) {
   ctx.state.aiCooldowns.set(extracted.groupId, now);
 
   const apiKey = ia.apiKey && !String(ia.apiKey).includes('*') ? ia.apiKey : (process.env.DEEPSEEK_API_KEY || '');
-  const baseUrl = String(ia.baseUrl || '').includes('api.z.ai')
-    ? DEFAULT_DEEPSEEK_BASE_URL
-    : (ia.baseUrl || DEFAULT_DEEPSEEK_BASE_URL);
-  const model = String(ia.model || '').startsWith('glm-')
-    ? 'deepseek-chat'
-    : (ia.model || 'deepseek-chat');
-  const client = new DeepSeekClient({
+  const client = clientFor({
     apiKey,
-    baseUrl,
-    model,
+    baseUrl: ia.baseUrl || DEFAULT_DEEPSEEK_BASE_URL,
+    model: ia.model || DEFAULT_DEEPSEEK_MODEL,
     timeoutMs: ia.timeoutMs,
-    logger: ctx.logger,
   });
 
   const historyLimit = Math.min(Math.max(Number(ia.historyLimit || 8), 0), 20);

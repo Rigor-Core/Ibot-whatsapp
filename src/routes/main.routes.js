@@ -9,13 +9,13 @@ import { cleanGroupPayload, normalizeGroupDoc } from '../bot/utils/group-normali
 import { normalizeAdminCommandsConfig } from '../services/admin-command-service.js';
 import { isValidTimeZone } from '../services/message-scheduler.js';
 import { publicSafeAccount, publicSafeConfig, now } from '../core/utils.js';
+import { requireAccountUser } from './auth.middleware.js';
 
 export function createMainRouter({ collections, registry, scheduler }) {
   const router = Router();
 
-  router.get('/api/health', (req, res) => res.json({ ok: true, version: '2.1.0' }));
-
-  router.use('/api/bot', async (req, res, next) => {
+  // Solo los usuarios normales tienen cuenta de WhatsApp; el administrador no.
+  router.use('/api/bot', requireAccountUser, async (req, res, next) => {
     try {
       const account = await getUserAccount(collections, req.panelUser);
       req.botAccount = account;
@@ -253,6 +253,12 @@ export function createMainRouter({ collections, registry, scheduler }) {
       delete doc.createdAt;
       await collections.groups.updateOne({ accountId, groupId }, { $set: { ...doc, updatedAt: now() } }, { upsert: false });
       const runtime = await registry.get(accountId);
+      // El formulario siempre envía el contador; solo se aplica si el usuario lo cambió.
+      // Se aplica antes de recargar para que la recarga tome el resto de campos
+      // (por ejemplo, reactivar un grupo que había llegado a su límite).
+      if (req.body?.contador !== undefined && Number(doc.contador) !== Number(existing.contador || 0)) {
+        runtime.setGroupCounter(groupId, doc.contador);
+      }
       await runtime.reloadGroups();
       const updated = await collections.groups.findOne({ accountId, groupId });
       res.json({ ok: true, grupo: normalizeGroupDoc(updated) });
@@ -275,6 +281,7 @@ export function createMainRouter({ collections, registry, scheduler }) {
     const groupId = decodeURIComponent(req.params.groupId);
     await collections.groups.updateOne({ accountId, groupId }, { $set: { contador: 0, updatedAt: now() } });
     const runtime = await registry.get(accountId);
+    runtime.setGroupCounter(groupId, 0);
     await runtime.reloadGroups();
     res.json({ ok: true });
   });

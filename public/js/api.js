@@ -51,7 +51,6 @@ const IbotApi = (() => {
     return res.blob();
   }
   const api = (path = '') => `/api/bot${path}`;
-  const adminApi = (path = '') => `/api/admin${path}`;
   const queryString = (params = {}) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -61,7 +60,7 @@ const IbotApi = (() => {
     return serialized ? `?${serialized}` : '';
   };
   return {
-    request, api, adminApi,
+    request, api,
     authStatus: () => request('/api/auth/status'),
     logoutPanel: () => request('/api/auth/logout', { method: 'POST' }),
     bot: () => request('/api/bot'),
@@ -92,11 +91,6 @@ const IbotApi = (() => {
     scheduledMessages: (limit = 30) => request(api(`/scheduled-messages?limit=${encodeURIComponent(limit)}`)),
     scheduleMessage: (body) => request(api('/scheduled-messages'), { method: 'POST', body: JSON.stringify(body) }),
     cancelScheduledMessage: (id) => request(api(`/scheduled-messages/${encodeURIComponent(id)}`), { method: 'DELETE' }),
-    adminOverview: () => request(adminApi('/overview')),
-    createAccount: (body) => request(adminApi('/users'), { method: 'POST', body: JSON.stringify(body) }),
-    deleteAccount: (username) => request(adminApi(`/users/${encodeURIComponent(username)}`), { method: 'DELETE' }),
-    resetAccountPassword: (username, password) => request(adminApi(`/users/${encodeURIComponent(username)}/password`), { method: 'PUT', body: JSON.stringify({ password }) }),
-    controlAccount: (accountId, action) => request(adminApi(`/accounts/${encodeURIComponent(accountId)}/${action}`), { method: 'POST' }),
   };
 })();
 function $(s, root = document) { return root.querySelector(s); }
@@ -134,19 +128,4 @@ function bindPanelLogout() {
     await IbotApi.logoutPanel().catch(() => null);
     location.href = '/login.html';
   });
-  bindPanelAdminLink();
-}
-
-// eslint-disable-next-line no-unused-vars
-async function bindPanelAdminLink() {
-  const navigation = document.querySelector('.top-links');
-  if (!navigation || navigation.querySelector('[data-admin-link]')) return;
-  const status = await IbotApi.authStatus().catch(() => null);
-  if (status?.user?.role !== 'owner') return;
-  const link = document.createElement('a');
-  link.href = '/admin.html';
-  link.title = 'Administración';
-  link.textContent = '🛡️';
-  link.dataset.adminLink = 'true';
-  navigation.insertBefore(link, document.getElementById('panelLogoutBtn'));
 }

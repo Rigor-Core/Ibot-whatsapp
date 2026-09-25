@@ -296,6 +296,7 @@ function openNewForCategory(cat = 'otros') {
   fieldIndependiente.checked = false;
   fieldLimite.value = '';
   fieldContador.value = '0';
+  delete fieldContador.dataset.original;
   fieldCommandsEnabled.checked = false;
   fieldCommandPrefix.value = '!';
   fieldWelcomeMessage.value = '¡Bienvenido/a {user} a {group}!';
@@ -318,6 +319,7 @@ function openEdit(g) {
   fieldIndependiente.checked = !!g.independiente;
   fieldLimite.value = g.limite ?? '';
   fieldContador.value = g.contador ?? 0;
+  fieldContador.dataset.original = fieldContador.value;
   fieldCommandsEnabled.checked = !!g.commandSettings?.enabled;
   fieldCommandPrefix.value = g.commandSettings?.prefix || '!';
   fieldWelcomeMessage.value = g.commandSettings?.welcomeMessage || '¡Bienvenido/a {user} a {group}!';
@@ -328,7 +330,7 @@ function openEdit(g) {
 }
 
 function buildPayload() {
-  return {
+  const payload = {
     groupId: (fieldGroupIdInput.value || fieldGroupIdHidden.value).trim(),
     nombre: fieldNombre.value.trim() || 'Sin nombre',
     grupo: fieldGrupo.value.trim() || 'otros',
@@ -338,7 +340,6 @@ function buildPayload() {
     duracion: Number(fieldDuracion.value) || 0,
     independiente: !!fieldIndependiente.checked,
     limite: fieldLimite.value === '' ? null : Number(fieldLimite.value),
-    contador: Number(fieldContador.value || 0),
     commandSettings: {
       enabled: !!fieldCommandsEnabled.checked,
       prefix: fieldCommandPrefix.value.trim() || '!',
@@ -346,6 +347,12 @@ function buildPayload() {
       farewellMessage: fieldFarewellMessage.value.trim(),
     },
   };
+  // El contador solo se envía en grupos nuevos o si el usuario lo cambió: el valor
+  // cargado al abrir el formulario pisaría las respuestas registradas mientras tanto.
+  if (fieldContador.dataset.original === undefined || fieldContador.value !== fieldContador.dataset.original) {
+    payload.contador = Number(fieldContador.value || 0);
+  }
+  return payload;
 }
 
 /* ---- Guardar formulario ---- */
@@ -409,11 +416,12 @@ async function toggleResponder(groupId) {
   g.responder = newVal;
   renderGroups();
   try {
-    await IbotApi.updateGroup(groupId, {
-      ...g,
-      responder: newVal,
-      contador: g.independiente && newVal ? 0 : g.contador,
-    });
+    // Al reactivar un grupo independiente su contador se reinicia; en los demás
+    // casos no se envía para no pisar el contador real con el de la pantalla.
+    const body = { ...g, responder: newVal };
+    if (g.independiente && newVal) body.contador = 0;
+    else delete body.contador;
+    await IbotApi.updateGroup(groupId, body);
     await loadGroups();
   } catch (err) {
     g.responder = !newVal;

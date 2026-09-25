@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import { ObjectId } from 'mongodb';
-import { ensureUserAccount } from '../services/account-service.js';
+import { assertUserCapacity, getSystemSettings } from '../services/settings-service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_DAYS = Number(process.env.PANEL_SESSION_DAYS || 7);
@@ -10,6 +10,20 @@ const KEYLEN = 32;
 const DIGEST = 'sha256';
 const CSRF_COOKIE = 'ibot_csrf_token';
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
+
+export const ROLE_OWNER = 'owner';
+export const ROLE_ACCOUNT = 'account';
+
+// Páginas del panel de usuario y del panel de administración.
+const USER_PAGES = new Set([
+  '/', '/index', '/index.html', '/grupos', '/grupos.html', '/contactos', '/contactos.html',
+  '/comandos', '/comandos.html', '/configuracion', '/configuracion.html', '/logs', '/logs.html',
+]);
+const ADMIN_PAGES = new Set(['/admin', '/admin.html']);
+
+export function homePathFor(role) {
+  return role === ROLE_OWNER ? '/admin.html' : '/';
+}
 
 // Resolve the HMAC signing secret following a secure multi-tier strategy:
 // 1. Environment variable (production)
@@ -72,7 +86,14 @@ function sign(payload) {
 
 export function createSessionCookie(user) {
   const exp = Date.now() + SESSION_DAYS * DAY_MS;
-  const payload = base64url(JSON.stringify({ uid: String(user._id), username: user.username, exp }));
+  // sv (versión de sesión) permite invalidar todas las sesiones de un usuario
+  // al cambiar su contraseña o suspenderlo.
+  const payload = base64url(JSON.stringify({
+    uid: String(user._id),
+    username: user.username,
+    sv: Number(user.sessionVersion || 0),
+    exp,
+  }));
   return `${payload}.${sign(payload)}`;
 }
 
@@ -142,25 +163,41 @@ export function validatePassword(password) {
   return null;
 }
 
-export async function createPanelUser(collections, { username: rawUsername, password, role = 'account' }) {
+export async function createPanelUser(collections, { username: rawUsername, password, role = ROLE_ACCOUNT }) {
   const username = normalizeUsername(rawUsername);
   if (!USERNAME_PATTERN.test(username)) {
     throw new Error('Usuario inválido. Usa 3 a 32 caracteres: letras, números, punto, guion o guion bajo.');
   }
   const passwordError = validatePassword(password);
   if (passwordError) throw new Error(passwordError);
-  const normalizedRole = role === 'owner' ? 'owner' : 'account';
+  const normalizedRole = role === ROLE_OWNER ? ROLE_OWNER : ROLE_ACCOUNT;
+  if (normalizedRole === ROLE_ACCOUNT) await assertUserCapacity(collections);
   const doc = {
     username,
     password: hashPassword(password),
     role: normalizedRole,
+    disabled: false,
+    sessionVersion: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
   const result = await collections.users.insertOne(doc);
-  const user = { ...doc, _id: result.insertedId };
-  await ensureUserAccount(collections, user);
-  return user;
+  // La cuenta de WhatsApp del usuario se crea la primera vez que entra a su panel.
+  return { ...doc, _id: result.insertedId };
+}
+
+// Cambia la contraseña e invalida todas las sesiones abiertas del usuario.
+export async function setUserPassword(collections, filter, password) {
+  const passwordError = validatePassword(password);
+  if (passwordError) throw Object.assign(new Error(passwordError), { status: 400 });
+  return collections.users.findOneAndUpdate(
+    filter,
+    {
+      $set: { password: hashPassword(password), updatedAt: new Date() },
+      $inc: { sessionVersion: 1 },
+    },
+    { returnDocument: 'after' },
+  );
 }
 
 async function sessionUser(collections, req) {
@@ -168,8 +205,13 @@ async function sessionUser(collections, req) {
   const session = verifySessionCookie(token);
   if (!session) return null;
   const user = await collections.users.findOne({ _id: new ObjectId(session.uid) });
-  if (!user || user.username !== session.username) return null;
+  if (!user || user.username !== session.username || user.disabled) return null;
+  if (Number(user.sessionVersion || 0) !== Number(session.sv || 0)) return null;
   return user;
+}
+
+function publicUser(user) {
+  return { username: user.username, role: user.role || ROLE_ACCOUNT, home: homePathFor(user.role) };
 }
 
 // Generate a CSRF token and set it as a non-HttpOnly cookie so the frontend JS can read it
@@ -207,34 +249,43 @@ export function createAuthRouter({ collections }) {
     if (!req.path.startsWith('/api/auth')) return next();
     try {
       if (req.method === 'GET' && req.path === '/api/auth/status') {
-        const total = await collections.users.countDocuments();
-        const user = await sessionUser(collections, req);
+        const [total, user, settings] = await Promise.all([
+          collections.users.countDocuments(),
+          sessionUser(collections, req),
+          getSystemSettings(collections),
+        ]);
         ensureCsrfCookie(req, res);
-        return res.json({ authenticated: !!user, user: user ? { username: user.username, role: user.role } : null, needsSetup: total === 0 });
+        return res.json({
+          authenticated: !!user,
+          user: user ? publicUser(user) : null,
+          needsSetup: total === 0,
+          registrationOpen: total === 0 || settings.publicRegistration,
+        });
       }
       if (req.method === 'POST' && req.path === '/api/auth/register') {
         const total = await collections.users.countDocuments();
-        const publicRegistration = String(process.env.PANEL_ALLOW_PUBLIC_REGISTRATION || 'false').toLowerCase() === 'true';
-        const currentUser = await sessionUser(collections, req);
-        if (total > 0 && !publicRegistration && currentUser?.role !== 'owner') {
-          return res.status(403).json({ error: 'El registro público está cerrado. Solo el propietario puede crear cuentas.' });
+        const { publicRegistration } = await getSystemSettings(collections);
+        if (total > 0 && !publicRegistration) {
+          return res.status(403).json({ error: 'El registro público está cerrado. Pide tu cuenta al administrador.' });
         }
-        const username = normalizeUsername(req.body?.username);
-        const password = String(req.body?.password || '');
-        const user = await createPanelUser(collections, { username, password, role: total === 0 ? 'owner' : 'account' });
-        if (total === 0) setSessionCookie(res, createSessionCookie(user));
-        return res.json({ ok: true, user: { username: user.username, role: user.role } });
+        // El primer usuario del sistema es el administrador; los siguientes son usuarios normales.
+        const user = await createPanelUser(collections, {
+          username: normalizeUsername(req.body?.username),
+          password: String(req.body?.password || ''),
+          role: total === 0 ? ROLE_OWNER : ROLE_ACCOUNT,
+        });
+        setSessionCookie(res, createSessionCookie(user));
+        return res.json({ ok: true, user: publicUser(user) });
       }
       if (req.method === 'POST' && req.path === '/api/auth/login') {
         const username = normalizeUsername(req.body?.username);
         const password = String(req.body?.password || '');
         const user = await collections.users.findOne({ username });
         if (!user || !verifyPassword(password, user)) return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
-        if (user.role !== 'owner') return res.status(403).json({ error: 'Acceso denegado. Solo el administrador puede iniciar sesión.' });
-        await ensureUserAccount(collections, user);
+        if (user.disabled) return res.status(403).json({ error: 'Tu cuenta está suspendida. Contacta al administrador.' });
         setSessionCookie(res, createSessionCookie(user));
-        await collections.users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date(), updatedAt: new Date() } });
-        return res.json({ ok: true, user: { username: user.username, role: user.role } });
+        await collections.users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
+        return res.json({ ok: true, user: publicUser(user) });
       }
       if (req.method === 'POST' && req.path === '/api/auth/logout') {
         clearSessionCookie(res);
@@ -243,41 +294,60 @@ export function createAuthRouter({ collections }) {
       return res.status(404).json({ error: 'Ruta auth no encontrada' });
     } catch (err) {
       if (err?.code === 11000) return res.status(409).json({ error: 'Ese usuario ya existe.' });
-      return res.status(500).json({ error: err.message || 'Error de autenticación' });
+      return res.status(err?.status || 400).json({ error: err.message || 'Error de autenticación' });
     }
   };
 }
 
 export function requirePanelAuth({ collections }) {
   return async function panelAuth(req, res, next) {
-    if (['/login', '/login.html', '/register', '/register.html'].includes(req.path)) {
-      return next();
-    }
-    const enabled = String(process.env.PANEL_AUTH_ENABLED || 'true').toLowerCase() !== 'false';
-    if (!enabled) return next();
-    const user = await sessionUser(collections, req);
-    if (user) {
-      req.panelUser = { uid: String(user._id), username: user.username, role: user.role || 'account' };
-      // CSRF validation for all state-changing requests
-      const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
-      if (mutatingMethods.includes(req.method) && req.path.startsWith('/api/')) {
-        if (!validateCsrf(req)) {
-          return res.status(403).json({ error: 'Token CSRF inválido o faltante.' });
-        }
+    try {
+      if (['/login', '/login.html', '/register', '/register.html'].includes(req.path)) {
+        return next();
       }
-      ensureCsrfCookie(req, res);
-      return next();
+      const enabled = String(process.env.PANEL_AUTH_ENABLED || 'true').toLowerCase() !== 'false';
+      if (!enabled) return next();
+      const user = await sessionUser(collections, req);
+      if (user) {
+        req.panelUser = { uid: String(user._id), username: user.username, role: user.role || ROLE_ACCOUNT };
+        // CSRF validation for all state-changing requests
+        const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
+        if (mutatingMethods.includes(req.method) && req.path.startsWith('/api/')) {
+          if (!validateCsrf(req)) {
+            return res.status(403).json({ error: 'Token CSRF inválido o faltante.' });
+          }
+        }
+        ensureCsrfCookie(req, res);
+        return next();
+      }
+      const total = await collections.users.countDocuments().catch(() => 1);
+      const target = total === 0 ? '/register.html' : '/login.html';
+      if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida', needsSetup: total === 0 });
+      const wantsHtml = req.method === 'GET' && !req.path.includes('.');
+      if (wantsHtml || req.accepts('html')) return res.redirect(target);
+      return res.status(401).json({ error: 'Sesión requerida', needsSetup: total === 0 });
+    } catch (err) {
+      return next(err);
     }
-    const total = await collections.users.countDocuments().catch(() => 1);
-    const target = '/login.html';
-    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida', needsSetup: total === 0 });
-    const wantsHtml = req.method === 'GET' && !req.path.includes('.');
-    if (wantsHtml || req.accepts('html')) return res.redirect(target);
-    return res.status(401).json({ error: 'Sesión requerida', needsSetup: total === 0 });
   };
 }
 
+// Cada rol ve solo su propio panel: el administrador no tiene panel de WhatsApp
+// y los usuarios no tienen acceso al panel de administración.
+export function routePagesByRole(req, res, next) {
+  const role = req.panelUser?.role;
+  if (!role || req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+  if (role === ROLE_OWNER && USER_PAGES.has(req.path)) return res.redirect('/admin.html');
+  if (role !== ROLE_OWNER && ADMIN_PAGES.has(req.path)) return res.redirect('/');
+  return next();
+}
+
 export function requirePanelOwner(req, res, next) {
-  if (req.panelUser?.role === 'owner') return next();
-  return res.status(403).json({ error: 'Acceso exclusivo para el propietario del panel.' });
+  if (req.panelUser?.role === ROLE_OWNER) return next();
+  return res.status(403).json({ error: 'Acceso exclusivo para el administrador del panel.' });
+}
+
+export function requireAccountUser(req, res, next) {
+  if (req.panelUser && req.panelUser.role !== ROLE_OWNER) return next();
+  return res.status(403).json({ error: 'El administrador no tiene una cuenta de WhatsApp. Usa el panel de administración.' });
 }

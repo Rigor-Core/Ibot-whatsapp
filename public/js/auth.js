@@ -11,6 +11,10 @@ async function authStatus() {
   const res = await fetch('/api/auth/status');
   return res.json();
 }
+// Cada rol tiene su propio panel: administrador → /admin.html, usuario → /.
+function homeFor(user) {
+  return user?.home || (user?.role === 'owner' ? '/admin.html' : '/');
+}
 function showMsg(message, danger = false) {
   const el = $('#authMsg');
   if (!el) return;
@@ -45,15 +49,17 @@ async function initLogin() {
     if ($('#password')) $('#password').value = '';
   }, 60);
   const st = await authStatus().catch(() => null);
-  if (st?.authenticated) location.href = '/admin.html';
+  if (st?.authenticated) { location.href = homeFor(st.user); return; }
+  if (st?.needsSetup) { location.href = '/register.html'; return; }
+  if (st?.registrationOpen && $('#registerLink')) $('#registerLink').style.display = '';
   $('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#loginBtn');
     btn.disabled = true;
     showMsg('Iniciando sesión...');
     try {
-      await authRequest('/api/auth/login', { username: $('#username').value, password: $('#password').value });
-      location.href = '/admin.html';
+      const data = await authRequest('/api/auth/login', { username: $('#username').value, password: $('#password').value });
+      location.href = homeFor(data?.user);
     } catch (err) {
       showMsg(err.message, true);
     } finally {
@@ -69,7 +75,13 @@ async function initRegister() {
     if ($('#confirm')) $('#confirm').value = '';
   }, 60);
   const st = await authStatus().catch(() => null);
-  if (st?.authenticated && !st?.needsSetup) { location.href = '/admin.html'; return; }
+  if (st?.authenticated) { location.href = homeFor(st.user); return; }
+  if (st && !st.registrationOpen) { location.href = '/login.html'; return; }
+  if (st?.needsSetup) {
+    $('#registerTitle').textContent = 'Crear administrador';
+    $('#registerSubtitle').textContent = 'Es el primer acceso: esta cuenta administrará el sistema y a los usuarios.';
+    $('#registerBtn').textContent = 'Crear administrador';
+  }
   $('#registerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const password = $('#password').value;
@@ -79,8 +91,8 @@ async function initRegister() {
     btn.disabled = true;
     showMsg('Creando usuario...');
     try {
-      await authRequest('/api/auth/register', { username: $('#username').value, password });
-      location.href = '/admin.html';
+      const data = await authRequest('/api/auth/register', { username: $('#username').value, password });
+      location.href = homeFor(data?.user);
     } catch (err) {
       showMsg(err.message, true);
     } finally {

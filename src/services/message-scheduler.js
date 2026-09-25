@@ -1,9 +1,11 @@
 import { ObjectId } from 'mongodb';
+import { DEFAULT_TIMEZONE } from '../core/utils.js';
 
-const DEFAULT_TIMEZONE = 'America/Hermosillo';
 const MAX_MESSAGE_LENGTH = 4000;
 
 export function isValidTimeZone(timeZone) {
+  // Intl acepta timeZone undefined (usa la zona del servidor); aquí no es válido.
+  if (typeof timeZone !== 'string' || !timeZone.trim()) return false;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
     return true;
@@ -98,6 +100,10 @@ export class MessageScheduler {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  isRunning() {
+    return !!this.timer;
   }
 
   async create({ accountId, message, target, localDate, localTime, timeZone }) {

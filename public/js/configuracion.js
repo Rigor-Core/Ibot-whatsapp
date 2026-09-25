@@ -15,8 +15,8 @@ async function load() {
   
   const ia = current.ia || {};
   $('#iaEnabled').value = String(ia.enabled === true);
-  $('#iaModel').value = String(ia.model || '').startsWith('glm-') ? 'deepseek-chat' : (ia.model || 'deepseek-chat');
-  $('#iaBaseUrl').value = ia.baseUrl?.includes('api.z.ai') ? 'https://dipisik.rigorcore.com/v1' : (ia.baseUrl || 'https://dipisik.rigorcore.com/v1');
+  $('#iaModel').value = ia.model || 'deepseek-chat';
+  $('#iaBaseUrl').value = ia.baseUrl || 'https://dipisik.rigorcore.com/v1';
   $('#iaApiKey').value = '';
   $('#iaTemperature').value = ia.temperature ?? 0.6;
   $('#iaMaxTokens').value = ia.maxTokens ?? 500;

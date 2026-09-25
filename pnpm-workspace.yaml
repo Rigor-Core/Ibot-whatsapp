@@ -1,0 +1,12 @@
+# pnpm 11 lee estas opciones desde aquí (ya no desde .npmrc).
+autoInstallPeers: false
+strictPeerDependencies: false
+
+# Ninguna dependencia necesita ejecutar scripts de instalación:
+# - baileys: solo comprueba la versión de Node (ya exigida en "engines").
+# - protobufjs: solo muestra un aviso de versión.
+# - sharp: usa binarios precompilados (@img/sharp-*); Baileys lo usa para miniaturas.
+allowBuilds:
+  '@whiskeysockets/baileys': false
+  protobufjs: false
+  sharp: false

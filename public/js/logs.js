@@ -260,6 +260,7 @@ function openGroupConfigModal(groupId, config) {
     $('#field-independiente').checked = !!config.independiente;
     $('#field-limite').value = config.limite ?? '';
     $('#field-contador').value = config.contador ?? 0;
+    $('#field-contador').dataset.original = $('#field-contador').value;
     $('#field-commands-enabled').checked = !!config.commandSettings?.enabled;
     $('#field-command-prefix').value = config.commandSettings?.prefix || '!';
     $('#field-welcome-message').value = config.commandSettings?.welcomeMessage || '¡Bienvenido/a {user} a {group}!';
@@ -280,6 +281,7 @@ function openGroupConfigModal(groupId, config) {
     $('#field-independiente').checked = false;
     $('#field-limite').value = '';
     $('#field-contador').value = 0;
+    delete $('#field-contador').dataset.original;
     $('#field-commands-enabled').checked = false;
     $('#field-command-prefix').value = '!';
     $('#field-welcome-message').value = '¡Bienvenido/a {user} a {group}!';
@@ -308,7 +310,7 @@ function closeModal() {
 }
 
 function getFormPayload() {
-  return {
+  const payload = {
     groupId: ($('#field-groupId-input').value || $('#field-groupId').value || selectedGroup).trim(),
     nombre: $('#field-nombre').value.trim() || 'Sin nombre',
     grupo: $('#field-grupo').value.trim() || 'otros',
@@ -318,7 +320,6 @@ function getFormPayload() {
     duracion: Number($('#field-duracion').value) || 0,
     independiente: !!$('#field-independiente').checked,
     limite: $('#field-limite').value === '' ? null : Number($('#field-limite').value),
-    contador: Number($('#field-contador').value || 0),
     commandSettings: {
       enabled: !!$('#field-commands-enabled').checked,
       prefix: $('#field-command-prefix').value.trim() || '!',
@@ -326,6 +327,13 @@ function getFormPayload() {
       farewellMessage: $('#field-farewell-message').value.trim(),
     },
   };
+  // El contador solo se envía en grupos nuevos o si el usuario lo cambió: el valor
+  // cargado al abrir el formulario pisaría las respuestas registradas mientras tanto.
+  const contador = $('#field-contador');
+  if (contador.dataset.original === undefined || contador.value !== contador.dataset.original) {
+    payload.contador = Number(contador.value || 0);
+  }
+  return payload;
 }
 
 async function saveForm(e) {
