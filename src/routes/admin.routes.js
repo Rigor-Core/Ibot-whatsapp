@@ -140,6 +140,61 @@ export function createAdminRouter({ collections, registry, scheduler }) {
     res.json({ ok: true, status });
   }));
 
+  // Elimina completamente una conexión de WhatsApp: sesión, datos y archivos en disco.
+  // La cuenta del panel del usuario se conserva; solo se borra el WhatsApp vinculado.
+  router.delete('/api/admin/accounts/:accountId/session', handle(async (req, res) => {
+    const { accountId } = req.params;
+    const account = await collections.accounts.findOne({ accountId });
+    if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+
+    // 1. Detener el bot si está activo
+    if (registry.isRunning(accountId)) {
+      try { await registry.stop(accountId, 'admin_delete_session'); } catch (_) { /* ignorar */ }
+    }
+
+    // 2. Cerrar auth state y descartar escrituras pendientes
+    const runtime = registry.runtimes.get(accountId);
+    if (runtime) {
+      try {
+        await runtime.authState?.close?.();
+        await runtime.queue?.flush?.().catch(() => null);
+      } catch (_) { /* ignorar */ }
+    }
+
+    // 3. Borrar todos los datos de MongoDB
+    await Promise.allSettled([
+      collections.whatsappSessions.deleteMany({ accountId }),
+      collections.groups.deleteMany({ accountId }),
+      collections.configs.deleteMany({ accountId }),
+      collections.counters.deleteMany({ accountId }),
+      collections.chatMessages.deleteMany({ accountId }),
+      collections.chatGroups.deleteMany({ accountId }),
+      collections.contacts.deleteMany({ accountId }),
+      collections.scheduledMessages.deleteMany({ accountId }),
+      collections.statsDaily.deleteMany({ accountId }),
+      collections.pushSubscriptions.deleteMany({ accountId }),
+      collections.qrHistory.deleteMany({ accountId }),
+      collections.accounts.deleteMany({ accountId }),
+    ]);
+
+    // 4. Borrar archivos de sesión del disco
+    const { getAccountSessionPath } = await import('../services/account-service.js');
+    const { default: fs } = await import('fs');
+    const sessionPath = getAccountSessionPath(accountId);
+    try {
+      if (fs.existsSync(sessionPath)) {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.warn(`[admin] No se pudo borrar carpeta de sesión ${sessionPath}:`, err.message);
+    }
+
+    // 5. Eliminar el runtime de memoria
+    registry.forget(accountId);
+
+    res.json({ ok: true });
+  }));
+
   // ─── Cuenta del administrador ──────────────────────────────────────────
   router.put('/api/admin/me/password', handle(async (req, res) => {
     const me = await collections.users.findOne({ username: req.panelUser.username });

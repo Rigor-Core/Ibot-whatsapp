@@ -35,6 +35,7 @@
     setDisabled: (username, disabled) => IbotApi.request(`/api/admin/users/${encodeURIComponent(username)}/status`, { method: 'POST', body: JSON.stringify({ disabled }) }),
     assign: (accountId, username) => IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/assign`, { method: 'POST', body: JSON.stringify({ username }) }),
     control: (accountId, action) => IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/${action}`, { method: 'POST' }),
+    deleteSession: (accountId) => IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/session`, { method: 'DELETE' }),
     myPassword: (body) => IbotApi.request('/api/admin/me/password', { method: 'PUT', body: JSON.stringify(body) }),
   };
 
@@ -376,6 +377,7 @@
           : `<button class="btn" type="button" data-action="start" ${accountAttr}>Encender</button>`,
       ];
       if (account.phoneJid) buttons.push(`<button class="btn danger" type="button" data-action="logout" ${accountAttr} data-name="${escapeHtml(owner || account.label || account.accountId)}">Desvincular</button>`);
+      buttons.push(`<button class="btn danger" type="button" data-action="delete-session" ${accountAttr} data-name="${escapeHtml(owner || account.label || account.accountId)}" title="Elimina completamente esta conexión: sesión, grupos, contactos y archivos en disco" style="opacity:0.75">🗑️ Eliminar</button>`);
       if (!owner) buttons.unshift(`<button class="btn primary" type="button" data-action="assign" ${accountAttr}>Asignar</button>`);
       return `
         <tr>
@@ -450,6 +452,15 @@
         accept: 'Desvincular',
       });
       if (ok) runAction('WhatsApp desvinculado', () => api.control(account, 'logout'));
+      return;
+    }
+    if (action === 'delete-session') {
+      const ok = await confirmAction({
+        title: '⚠️ Eliminar conexión completamente',
+        text: `Esto borrará de forma permanente e irreversible la sesión, grupos, contactos, mensajes, configuración y archivos en disco de «${name}». El usuario podrá volver a vincular un número desde cero.`,
+        accept: '🗑️ Eliminar todo',
+      });
+      if (ok) runAction('Conexión eliminada completamente', () => api.deleteSession(account));
       return;
     }
     if (action === 'password') {

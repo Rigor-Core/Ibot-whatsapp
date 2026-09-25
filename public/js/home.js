@@ -174,7 +174,7 @@ function bindHome() {
       await loadHome(); 
     } catch (e) { toast(e.message); }
   };
-  
+
   // Toggle Answers (Activar/Desactivar respuestas)
   $('#answersBtn').onclick = async () => { 
     try { 
