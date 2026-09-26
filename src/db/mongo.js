@@ -36,6 +36,9 @@ export function getCollections(database = db) {
     statsDaily: database.collection('stats_daily'),
     settings: database.collection('system_settings'),
     pushSubscriptions: database.collection('push_subscriptions'),
+    media: database.collection('media'),
+    stickers: database.collection('stickers'),
+    aiTemplates: database.collection('ai_templates'),
   };
 }
 
@@ -64,6 +67,7 @@ async function safeCreateIndex(collection, indexSpec, options = {}) {
 const PER_ACCOUNT_COLLECTIONS = [
   'groups', 'chatGroups', 'chatMessages', 'contacts', 'counters',
   'whatsappSessions', 'statsDaily', 'scheduledMessages', 'qrHistory',
+  'media', 'stickers', 'aiTemplates',
 ];
 
 async function dropLegacyGlobalUniqueIndexes(c) {
@@ -110,6 +114,12 @@ export async function ensureIndexes(database = db) {
     safeCreateIndex(c.chatMessages, { ts: 1 }),
     safeCreateIndex(c.pushSubscriptions, { endpoint: 1 }, { unique: true }),
     safeCreateIndex(c.pushSubscriptions, { accountId: 1, updatedAt: -1 }),
+    safeCreateIndex(c.chatMessages, { accountId: 1, ts: -1 }),
+    safeCreateIndex(c.chatMessages, { accountId: 1, mediaId: 1 }, { partialFilterExpression: { mediaId: { $type: 'string' } } }),
+    safeCreateIndex(c.media, { accountId: 1, sha256: 1, kind: 1 }, { unique: true }),
+    safeCreateIndex(c.stickers, { accountId: 1, mediaId: 1 }, { unique: true }),
+    safeCreateIndex(c.stickers, { accountId: 1, uses: -1 }),
+    safeCreateIndex(c.aiTemplates, { accountId: 1, createdAt: 1 }),
   ]);
 }
 

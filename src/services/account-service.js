@@ -21,10 +21,11 @@ export function defaultBotConfig(accountId, { timezone = DEFAULT_TIMEZONE } = {}
     qr: null,
     modo: 'repartidor',
     schemaVersion: CONFIG_SCHEMA_VERSION,
+    // Todos los modos ignoran los mensajes que envías tú mismo, salvo que lo desactives.
+    ignoreOwnMessages: true,
     repartidor: {
       globalLimit: 1,
       filterEnabled: true,
-      ignoreOwnMessages: true,
     },
     ia: normalizeIaConfig({}),
     logs: {

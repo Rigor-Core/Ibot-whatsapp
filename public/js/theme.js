@@ -15,13 +15,15 @@
   apply();
   media.addEventListener('change', () => { if (!stored()) apply(); });
   window.IbotTheme = {
-    current: () => root.dataset.theme,
-    toggle() {
-      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
-      try { localStorage.setItem(KEY, next); } catch { /* sin almacenamiento: solo esta visita */ }
+    // Elección del usuario: light, dark o auto (según el sistema).
+    preference: () => stored() || 'auto',
+    set(preference) {
+      try {
+        if (preference === 'light' || preference === 'dark') localStorage.setItem(KEY, preference);
+        else localStorage.removeItem(KEY);
+      } catch { /* sin almacenamiento: solo esta visita */ }
       apply();
-      document.dispatchEvent(new CustomEvent('themechange', { detail: next }));
-      return next;
+      document.dispatchEvent(new CustomEvent('themechange', { detail: root.dataset.theme }));
     },
   };
   document.addEventListener('DOMContentLoaded', apply);

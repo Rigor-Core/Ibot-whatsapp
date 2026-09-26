@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { DEFAULT_TIMEZONE } from '../core/utils.js';
 
 const MAX_MESSAGE_LENGTH = 4000;
+export const SCHEDULE_MEDIA_TYPES = Object.freeze(['image', 'sticker']);
 
 export function isValidTimeZone(timeZone) {
   // Intl acepta timeZone undefined (usa la zona del servidor); aquí no es válido.
@@ -108,9 +109,10 @@ function normalizeTarget(target = {}) {
 }
 
 export class MessageScheduler {
-  constructor({ collections, registry, intervalMs = 15_000 }) {
+  constructor({ collections, registry, media, intervalMs = 15_000 }) {
     this.collections = collections;
     this.registry = registry;
+    this.media = media;
     this.intervalMs = intervalMs;
     this.timer = null;
     this.running = false;
@@ -134,9 +136,19 @@ export class MessageScheduler {
     return !!this.timer;
   }
 
-  async create({ accountId, message, target, localDate, localTime, timeZone, repeat = 'none' }) {
+  // Imagen (con el texto como pie) o sticker (el texto, si hay, va después).
+  async normalizeMedia(accountId, media) {
+    if (!media?.mediaId) return null;
+    const type = SCHEDULE_MEDIA_TYPES.includes(media.type) ? media.type : null;
+    const stored = type ? await this.media.meta(accountId, media.mediaId) : null;
+    if (!stored || stored.kind !== type) throw new Error('La imagen o el sticker ya no existe');
+    return { type, mediaId: stored.id };
+  }
+
+  async create({ accountId, message, media, target, localDate, localTime, timeZone, repeat = 'none' }) {
     const text = String(message || '').trim();
-    if (!text) throw new Error('El mensaje es obligatorio');
+    const attachment = await this.normalizeMedia(accountId, media);
+    if (!text && !attachment) throw new Error('Escribe un mensaje o adjunta una imagen o un sticker');
     if (text.length > MAX_MESSAGE_LENGTH) throw new Error(`El mensaje no puede superar ${MAX_MESSAGE_LENGTH} caracteres`);
     const zone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIMEZONE;
     const scheduledFor = localDateTimeToUtc(localDate, localTime, zone);
@@ -148,6 +160,7 @@ export class MessageScheduler {
       accountId,
       target: normalizeTarget(target),
       message: text,
+      media: attachment,
       timeZone: zone,
       repeat,
       localDate,
@@ -177,11 +190,19 @@ export class MessageScheduler {
 
   async cancel(accountId, id) {
     if (!ObjectId.isValid(id)) throw new Error('Mensaje programado inválido');
+    const _id = new ObjectId(id);
     const result = await this.collections.scheduledMessages.updateOne(
-      { _id: new ObjectId(id), accountId, status: 'pending' },
+      { _id, accountId, status: 'pending' },
       { $set: { status: 'cancelled', updatedAt: new Date() } },
     );
+    if (result.modifiedCount) await this.releaseMedia(await this.collections.scheduledMessages.findOne({ _id }));
     return result.modifiedCount > 0;
+  }
+
+  // Un archivo subido solo para programar se borra cuando ya no lo usa nadie.
+  async releaseMedia(job) {
+    if (!job?.media?.mediaId) return;
+    await this.media.releaseUnused(job.accountId, [job.media.mediaId]).catch(() => null);
   }
 
   async tick() {
@@ -236,6 +257,7 @@ export class MessageScheduler {
       accountId: job.accountId,
       target: job.target,
       message: job.message,
+      media: job.media || null,
       timeZone: job.timeZone,
       repeat: job.repeat,
       seriesId: job.seriesId || job._id,
@@ -256,7 +278,7 @@ export class MessageScheduler {
       if (!runtime.socket || runtime.status !== 'connected') {
         throw new Error('El bot no está conectado');
       }
-      await runtime.socket.sendMessage(job.target.jid, { text: job.message });
+      await this.send(runtime, job);
       await this.collections.scheduledMessages.updateOne(
         { _id: job._id, status: 'processing' },
         { $set: { status: 'sent', sentAt: new Date(), updatedAt: new Date() }, $unset: { processingAt: '' } },
@@ -265,7 +287,14 @@ export class MessageScheduler {
         target: job.target.jid,
         scheduledFor: job.scheduledFor,
       });
+      runtime.notify('scheduledSent', {
+        title: 'Mensaje programado enviado',
+        body: `A ${job.target?.name || job.target?.jid}: ${job.message ? job.message.slice(0, 120) : (job.media?.type === 'sticker' ? 'sticker' : 'imagen')}`,
+        tag: `scheduled-${job._id}`,
+        url: '/contactos.html',
+      });
       await this.scheduleNext(job);
+      await this.releaseMedia(job);
     } catch (error) {
       const attempts = Number(job.attempts || 1);
       const canRetry = attempts < 5;
@@ -293,6 +322,19 @@ export class MessageScheduler {
           $unset: { processingAt: '' },
         },
       );
+      if (!canRetry) await this.releaseMedia(job);
     }
+  }
+
+  async send(runtime, job) {
+    const { jid } = job.target;
+    if (!job.media?.mediaId) {
+      await runtime.send(jid, { text: job.message }, { origin: 'scheduled' });
+      return;
+    }
+    const caption = job.media.type === 'image' ? job.message : '';
+    const content = await runtime.media.messageContent(job.accountId, job.media.mediaId, caption);
+    await runtime.send(jid, content, { origin: 'scheduled', mediaId: job.media.mediaId });
+    if (job.media.type === 'sticker' && job.message) await runtime.send(jid, { text: job.message }, { origin: 'scheduled' });
   }
 }

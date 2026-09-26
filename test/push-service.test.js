@@ -59,8 +59,13 @@ test('envía solo las alertas activadas y elimina dispositivos vencidos', async 
   }
 });
 
-test('las preferencias por defecto activan todas las alertas', () => {
-  assert.deepEqual(normalizeNotificationPrefs({ qr: false }), {
-    disconnected: true, qr: false, order: true, groupLimit: true, scheduledFailed: true,
-  });
+test('preferencias por defecto y palabras clave', () => {
+  const prefs = normalizeNotificationPrefs({ qr: false, keywords: ['urgente', ' urgente ', 'x', 'pedido'] });
+  assert.equal(prefs.qr, false);
+  assert.equal(prefs.disconnected, true);
+  assert.equal(prefs.mention, true);
+  // Las alertas que pueden ser muy frecuentes vienen apagadas.
+  assert.equal(prefs.privateMessage, false);
+  assert.equal(prefs.iaReply, false);
+  assert.deepEqual(prefs.keywords, ['urgente', 'pedido']);
 });

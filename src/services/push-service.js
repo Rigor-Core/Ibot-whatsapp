@@ -7,25 +7,59 @@ const MAX_SUBSCRIPTIONS_PER_ACCOUNT = 20;
 // Alertas que cada usuario puede activar o desactivar.
 export const NOTIFICATION_TYPES = Object.freeze({
   disconnected: 'WhatsApp desconectado o sesión cerrada',
+  connected: 'WhatsApp vinculado o reconectado',
   qr: 'Código QR pendiente de escanear',
   order: 'Pedido tomado por el repartidor',
   groupLimit: 'Grupo que llegó a su límite',
+  mention: 'Te mencionan o responden en un grupo',
+  privateMessage: 'Mensaje nuevo en un chat privado',
+  keyword: 'Mensaje con una de tus palabras clave',
+  scheduledSent: 'Mensaje programado enviado',
   scheduledFailed: 'Mensaje programado que falló',
+  iaReply: 'La IA respondió en un chat',
+  iaError: 'La IA no pudo responder (clave, saldo o proveedor)',
+  extensionAction: 'La IA hizo un cambio con una extensión (por ejemplo, Todoist)',
+});
+
+// Agrupación para mostrarlas ordenadas en Ajustes.
+export const NOTIFICATION_GROUPS = Object.freeze({
+  'Conexión': ['disconnected', 'connected', 'qr'],
+  'Repartidor': ['order', 'groupLimit'],
+  'Mensajes': ['mention', 'privateMessage', 'keyword'],
+  'Programados': ['scheduledSent', 'scheduledFailed'],
+  'Inteligencia artificial': ['iaReply', 'iaError', 'extensionAction'],
 });
 
 const DEFAULT_PREFERENCES = Object.freeze({
   disconnected: true,
+  connected: true,
   qr: true,
   order: true,
   groupLimit: true,
+  mention: true,
+  privateMessage: false,
+  keyword: true,
+  scheduledSent: false,
   scheduledFailed: true,
+  iaReply: false,
+  iaError: true,
+  extensionAction: true,
 });
 
+const MAX_KEYWORDS = 30;
+
 export function normalizeNotificationPrefs(raw = {}) {
-  return Object.fromEntries(Object.keys(NOTIFICATION_TYPES).map((type) => [
-    type,
-    typeof raw?.[type] === 'boolean' ? raw[type] : DEFAULT_PREFERENCES[type],
-  ]));
+  const keywords = (Array.isArray(raw?.keywords) ? raw.keywords : [])
+    .map((keyword) => String(keyword || '').trim().slice(0, 40))
+    .filter((keyword) => keyword.length >= 2);
+  return {
+    ...Object.fromEntries(Object.keys(NOTIFICATION_TYPES).map((type) => [
+      type,
+      typeof raw?.[type] === 'boolean' ? raw[type] : DEFAULT_PREFERENCES[type],
+    ])),
+    // Palabras que disparan la alerta "keyword" en cualquier chat.
+    keywords: [...new Set(keywords)].slice(0, MAX_KEYWORDS),
+  };
 }
 
 function vapidSubject() {
@@ -116,7 +150,7 @@ export class PushService {
     if (!force && !(await this.preferences(accountId))[type]) return 0;
     const subscriptions = await this.collections.pushSubscriptions.find({ accountId }).toArray();
     const payload = JSON.stringify({ title, body, url, tag: tag || type });
-    const urgency = type === 'order' || type === 'disconnected' ? 'high' : 'normal';
+    const urgency = ['order', 'disconnected', 'mention'].includes(type) ? 'high' : 'normal';
     let delivered = 0;
     await Promise.all(subscriptions.map(async (subscription) => {
       try {

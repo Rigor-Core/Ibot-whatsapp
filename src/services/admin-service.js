@@ -229,6 +229,9 @@ export async function deleteAccountData({ collections, registry, accountId }) {
     collections.qrHistory.deleteMany({ accountId }),
     collections.whatsappSessions.deleteMany({ accountId }),
     collections.pushSubscriptions.deleteMany({ accountId }),
+    collections.media.deleteMany({ accountId }),
+    collections.stickers.deleteMany({ accountId }),
+    collections.aiTemplates.deleteMany({ accountId }),
   ]);
   await removeAccountStorage(accountId).catch((err) => {
     console.error(`[admin] No se pudo borrar el almacenamiento de ${accountId}:`, err.message);

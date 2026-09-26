@@ -21,6 +21,7 @@ export function extractMessage(msg) {
     || message.imageMessage?.contextInfo
     || message.videoMessage?.contextInfo
     || message.documentMessage?.contextInfo
+    || message.stickerMessage?.contextInfo
     || {}
   );
   const text =
@@ -40,6 +41,9 @@ export function extractMessage(msg) {
   else if (message.contactMessage || message.contactsArrayMessage) mediaType = 'contact';
   else if (message.locationMessage || message.liveLocationMessage) mediaType = 'location';
 
+  // Datos de las imágenes y stickers, que el panel puede guardar y mostrar.
+  const visual = message.imageMessage || message.stickerMessage;
+
   return {
     raw: msg,
     id: key.id,
@@ -48,6 +52,9 @@ export function extractMessage(msg) {
     senderName: msg?.pushName || '',
     mentionedJids: Array.isArray(contextInfo.mentionedJid) ? contextInfo.mentionedJid : [],
     quotedParticipant: contextInfo.participant || '',
+    quotedId: contextInfo.stanzaId || '',
+    mediaMime: visual?.mimetype || '',
+    mediaSize: Number(visual?.fileLength || 0),
     fromMe: !!key.fromMe,
     text: String(text || '').trim(),
     mediaType,

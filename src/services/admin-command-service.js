@@ -106,7 +106,7 @@ function mentionLabel(jid) {
 }
 
 async function reply(ctx, extracted, text, mentions = []) {
-  return ctx.socket.sendMessage(
+  return ctx.send(
     extracted.groupId,
     { text, ...(mentions.length ? { mentions } : {}) },
     { quoted: extracted.raw },
@@ -124,7 +124,11 @@ function availableHelp(config, role, prefix) {
 }
 
 export async function handleAdminCommand(extracted, ctx) {
-  if (!extracted.isGroup || extracted.fromMe || !extracted.text) return false;
+  if (!extracted.isGroup || !extracted.text) return false;
+  // Con "Respuestas" apagado ningún modo responde; tus propios mensajes solo
+  // cuentan si desactivaste "Ignorar mis mensajes".
+  if (!ctx.config?.respuestas) return false;
+  if (extracted.fromMe && ctx.config?.ignoreOwnMessages !== false) return false;
   const globalConfig = normalizeAdminCommandsConfig(ctx.config?.adminCommands);
   const group = ctx.groupsById.get(extracted.groupId);
   const groupConfig = normalizeGroupCommandSettings(group?.commandSettings);

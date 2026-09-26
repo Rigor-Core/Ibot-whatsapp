@@ -36,15 +36,17 @@
     toggleBtn.textContent = active ? 'Desactivar en este dispositivo' : 'Activar en este dispositivo';
     testBtn.hidden = !active;
 
-    prefsEl.innerHTML = '';
     if (!info) return;
-    for (const [type, label] of Object.entries(info.types)) {
-      const wrapper = create('label', { className: 'switch-field', style: 'flex: 1; min-width: 240px;' });
-      const input = create('input', { type: 'checkbox', checked: !!info.preferences[type] });
-      input.dataset.type = type;
-      wrapper.append(input, document.createTextNode(` ${label}`));
-      prefsEl.appendChild(wrapper);
-    }
+    // Alertas agrupadas por tema; cada interruptor se guarda al instante.
+    prefsEl.innerHTML = Object.entries(info.groups).map(([title, types]) => `
+      <div class="push-group">
+        <div class="section-label">${escapeHtml(title)}</div>
+        <div class="toggles">${types.map((type) => `
+          <label class="toggle-row"><span class="text">${escapeHtml(info.types[type])}</span>
+            <span class="switch"><input type="checkbox" data-type="${type}" ${info.preferences[type] ? 'checked' : ''}><span></span></span>
+          </label>`).join('')}</div>
+      </div>`).join('');
+    $('#pushKeywords').value = (info.preferences.keywords || []).join(', ');
   }
 
   async function refresh() {
@@ -106,13 +108,24 @@
   prefsEl.addEventListener('change', async (event) => {
     const input = event.target.closest('input[data-type]');
     if (!input) return;
-    const preferences = { ...info.preferences, [input.dataset.type]: input.checked };
     try {
-      const saved = await IbotApi.saveConfig({ notifications: preferences });
+      const saved = await IbotApi.saveConfig({ notifications: { [input.dataset.type]: input.checked } });
       info.preferences = saved.notifications;
       toast(input.checked ? '🔔 Alerta activada' : '🔕 Alerta desactivada');
     } catch (err) {
       input.checked = !input.checked;
+      toast(`❌ ${err.message}`);
+    }
+  });
+
+  $('#pushKeywordsSave').addEventListener('click', async () => {
+    const keywords = $('#pushKeywords').value.split(',').map((word) => word.trim()).filter(Boolean);
+    try {
+      const saved = await IbotApi.saveConfig({ notifications: { keywords } });
+      info.preferences = saved.notifications;
+      $('#pushKeywords').value = saved.notifications.keywords.join(', ');
+      toast(saved.notifications.keywords.length ? '🔔 Palabras clave guardadas' : 'Sin palabras clave');
+    } catch (err) {
       toast(`❌ ${err.message}`);
     }
   });

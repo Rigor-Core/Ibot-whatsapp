@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Ibot — Chats</title>
   <meta name="theme-color" content="#f5f6f8">
   <script src="/js/theme.js"></script>
@@ -10,64 +10,82 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <style>
-    .chat-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: calc(100vh - 140px); min-height: 480px; padding: 0; overflow: hidden; }
+    .chat-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); padding: 0; overflow: hidden; }
     .chat-list { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
     .chat-list-head { padding: 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--border); }
+    .chat-list-title { display: flex; align-items: baseline; gap: 8px; font-size: 17px; font-weight: 800; }
     .chat-list-head .segmented { width: 100%; }
     .chat-list-head .segmented button { flex: 1; }
-    .chat-items { overflow-y: auto; flex: 1; }
-    .chat-item { display: flex; gap: 12px; align-items: center; padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; text-align: left; }
+    .chat-items { overflow-y: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
+    .chat-item { display: flex; gap: 12px; align-items: center; padding: 11px 14px; cursor: pointer; border: 0; border-bottom: 1px solid var(--border); background: none; width: 100%; text-align: left; }
     .chat-item:hover { background: var(--surface-2); }
     .chat-item.active { background: var(--accent-soft); }
     .chat-item .main { flex: 1; min-width: 0; }
-    .chat-item .row { display: flex; gap: 8px; align-items: baseline; }
-    .chat-item .name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-item .row { display: flex; gap: 6px; align-items: center; }
+    .chat-item .name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .chat-item .time { font-size: 11.5px; color: var(--muted); flex: none; }
     .chat-item .preview { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-item .marks { display: inline-flex; gap: 3px; color: var(--muted); flex: none; }
+    .chat-item .marks svg { width: 14px; height: 14px; }
+    .chat-item .marks .ai-allow { color: var(--good); }
+    .chat-item .marks .ai-block { color: var(--danger); }
     .chat-view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-    .chat-view-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .chat-view-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--border); }
     .chat-view-head .main { flex: 1; min-width: 0; }
     .chat-view-head .title { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-view-head .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .head-actions { display: flex; gap: 2px; }
+    .head-actions .btn.done { color: var(--good); }
     .chat-back { display: none; }
-    .messages { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); }
+    .messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); }
+    .older { align-self: center; margin-bottom: 6px; }
     .day-sep { align-self: center; font-size: 11.5px; font-weight: 700; color: var(--muted); background: var(--surface); padding: 3px 10px; border-radius: 999px; margin: 8px 0; }
-    .bubble { max-width: min(78%, 560px); padding: 8px 12px 6px; border-radius: 14px; background: var(--bubble-in); box-shadow: var(--shadow); align-self: flex-start; word-wrap: break-word; white-space: pre-wrap; }
+    .bubble { position: relative; max-width: min(78%, 560px); padding: 8px 12px 6px; border-radius: 14px; background: var(--bubble-in); box-shadow: var(--shadow); align-self: flex-start; word-wrap: break-word; white-space: pre-wrap; }
     .bubble.out { align-self: flex-end; background: var(--bubble-out); }
     .bubble .who { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
     .bubble .media { font-style: italic; color: var(--muted); }
-    .bubble .at { font-size: 10.5px; color: var(--muted); text-align: right; margin-top: 2px; }
-    .composer { display: flex; gap: 10px; padding: 12px; border-top: 1px solid var(--border); align-items: flex-end; }
-    .composer textarea { flex: 1; min-height: 42px; max-height: 140px; resize: none; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); outline: none; line-height: 1.4; }
+    .bubble .at { font-size: 10.5px; color: var(--muted); text-align: right; margin-top: 2px; display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+    .bubble .origin { font-weight: 800; letter-spacing: .02em; color: var(--accent); }
+    .bubble-img { display: block; max-width: 100%; width: 280px; max-height: 320px; object-fit: cover; border-radius: 10px; margin: -2px -6px 6px; cursor: zoom-in; background: var(--surface-3); }
+    .bubble.sticker { background: transparent; box-shadow: none; padding: 0; }
+    .bubble-sticker { display: block; width: 150px; height: 150px; object-fit: contain; }
+    .bubble.sticker .at { background: var(--surface); border-radius: 999px; padding: 1px 8px; width: max-content; margin-left: auto; }
+    .save-sticker { position: absolute; top: 4px; right: -40px; opacity: 0; transition: opacity .15s; }
+    .bubble.out .save-sticker { right: auto; left: -40px; }
+    .bubble.sticker:hover .save-sticker, .bubble.sticker:focus-within .save-sticker { opacity: 1; }
+    .composer { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border); align-items: flex-end; background: var(--surface); }
+    .composer-main { flex: 1; min-width: 0; display: grid; gap: 6px; }
+    .composer textarea { width: 100%; min-height: 42px; max-height: 140px; resize: none; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); outline: none; line-height: 1.4; }
     .composer textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .chat-placeholder { flex: 1; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 24px; }
+    .chat-placeholder svg { width: 48px; height: 48px; opacity: .5; margin-bottom: 10px; }
+    .settings-block + .settings-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+    @media (hover: none) { .save-sticker { opacity: 1; } }
     @media (max-width: 1024px) { .chat-layout { grid-template-columns: 290px minmax(0, 1fr); } }
     @media (max-width: 640px) {
-      .chat-layout { grid-template-columns: minmax(0, 1fr); height: calc(100vh - 190px - env(safe-area-inset-bottom)); border-radius: 14px; }
+      .chat-layout { grid-template-columns: minmax(0, 1fr); border-radius: 14px; }
       .chat-list { border-right: 0; }
       .chat-view { display: none; }
       .chat-layout.viewing .chat-list { display: none; }
       .chat-layout.viewing .chat-view { display: flex; }
       .chat-back { display: inline-flex; }
       .bubble { max-width: 88%; }
+      .messages { padding: 12px; }
+      .save-sticker { right: auto; left: calc(100% + 4px); }
+      .bubble.out .save-sticker { left: auto; right: calc(100% + 4px); }
     }
   </style>
 </head>
-<body class="app" data-page="chats">
+<body class="app fill" data-page="chats">
   <div class="app-shell">
     <nav class="app-nav" id="appNav" aria-label="Navegación principal"></nav>
     <main class="app-main">
       <div class="app-content">
-        <header class="page-head">
-          <div>
-            <h1 class="page-title">Chats</h1>
-            <div class="page-sub">Grupos y contactos que tu WhatsApp ha visto, en tiempo real</div>
-          </div>
-        </header>
-
         <section class="card chat-layout" id="chatLayout">
           <aside class="chat-list">
             <div class="chat-list-head">
-              <input type="search" id="chatSearch" placeholder="Buscar chat…" aria-label="Buscar chat">
+              <div class="chat-list-title">Chats <span class="hint" id="chatCount"></span></div>
+              <input type="search" id="chatSearch" placeholder="Buscar chat o número…" aria-label="Buscar chat">
               <div class="segmented" id="chatFilter" role="group" aria-label="Filtrar chats">
                 <button type="button" data-type="" class="active">Todos</button>
                 <button type="button" data-type="group">Grupos</button>
@@ -79,25 +97,44 @@
 
           <div class="chat-view" id="chatView">
             <div class="chat-placeholder" id="chatPlaceholder">
-              <div><strong>Elige un chat</strong><br>Los mensajes nuevos aparecerán aquí al instante.</div>
+              <div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <div><strong>Elige un chat</strong></div>
+                <div class="hint">Los mensajes nuevos aparecen aquí al instante.</div>
+              </div>
             </div>
             <div class="chat-view-head" id="chatHead" hidden>
-              <button class="btn ghost icon chat-back" type="button" id="chatBack" aria-label="Volver a la lista">
+              <button class="btn ghost icon chat-back" type="button" id="chatBack" aria-label="Volver a la lista" title="Volver">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
               </button>
               <div class="avatar" id="chatAvatar"></div>
               <div class="main">
                 <div class="title" id="chatTitle"></div>
-                <div class="hint" id="chatSub"></div>
+                <div class="sub" id="chatSub"></div>
               </div>
-              <button class="btn sm" type="button" id="chatSchedule" data-feature="scheduleMessages">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                <span>Programar</span>
-              </button>
+              <div class="head-actions">
+                <button class="btn ghost icon" type="button" id="chatGroupBtn" data-page="grupos" data-feature="manageGroups" hidden></button>
+                <button class="btn ghost icon" type="button" id="chatSchedule" data-feature="scheduleMessages" title="Programar un mensaje" aria-label="Programar un mensaje">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                </button>
+                <button class="btn ghost icon" type="button" id="chatSettings" title="Ajustes de este chat" aria-label="Ajustes de este chat">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+              </div>
             </div>
             <div class="messages" id="messages" hidden></div>
             <form class="composer" id="composer" data-feature="sendMessages" hidden>
-              <textarea id="composerText" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea>
+              <button class="btn ghost icon" type="button" id="composerSticker" title="Enviar un sticker" aria-label="Enviar un sticker">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>
+              </button>
+              <label class="btn ghost icon" title="Enviar una imagen" aria-label="Enviar una imagen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                <input type="file" id="composerImage" accept="image/*" hidden>
+              </label>
+              <div class="composer-main">
+                <div id="composerAttachment" hidden></div>
+                <textarea id="composerText" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea>
+              </div>
               <button class="btn primary icon" type="submit" id="composerSend" aria-label="Enviar">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
               </button>
@@ -107,10 +144,51 @@
       </div>
     </main>
   </div>
+
+  <!-- Ajustes del chat (engranaje) -->
+  <div class="modal" id="chatSettingsModal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="csTitle">
+      <div class="modal-title" id="csTitle">Ajustes del chat</div>
+      <div class="modal-sub" id="csSub"></div>
+      <div class="settings-block" data-feature="iaSettings">
+        <div class="section-label">Inteligencia artificial</div>
+        <div class="form-grid">
+          <label class="field col-12">¿Responde la IA en este chat?
+            <select id="csAiAccess">
+              <option value="inherit">Según la configuración general</option>
+              <option value="allow">Sí, siempre en este chat</option>
+              <option value="block">No, nunca en este chat</option>
+            </select>
+            <span class="hint" id="csAiHint"></span>
+          </label>
+          <label class="field col-12">Comportamiento (plantilla)
+            <select id="csAiTemplate"></select>
+            <span class="hint">Crea y edita plantillas en Ajustes → Inteligencia artificial.</span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-block">
+        <div class="section-label">Mensajes guardados</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn sm" type="button" id="csCopyId">Copiar id</button>
+          <button class="btn sm danger" type="button" id="csClear">Vaciar chat</button>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn ghost" type="button" data-close>Cerrar</button>
+        <button class="btn primary" type="button" id="csSave" data-feature="iaSettings">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-label="Imagen"><img alt=""></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/dialog.js"></script>
+  <script src="/js/sticker-picker.js"></script>
   <script src="/js/schedule.js"></script>
+  <script src="/js/group-form.js"></script>
   <script src="/js/chats.js"></script>
 </body>
 </html>

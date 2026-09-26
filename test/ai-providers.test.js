@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  normalizeIaRules,
   mergeIaUpdate,
   normalizeIaConfig,
   publicIaConfig,
@@ -63,12 +64,35 @@ test('los endpoints personalizados requieren permiso del administrador y una URL
 });
 
 test('normaliza límites y valores fuera de rango', () => {
-  const ia = normalizeIaConfig({ temperature: 9, maxTokens: 5, historyLimit: -3, commands: ['/ia', 'con espacio', ''], triggerMode: 'otro' });
+  const ia = normalizeIaConfig({ temperature: 9, maxTokens: 5, contextMessages: -3, commands: ['/ia', 'con espacio', ''], triggerMode: 'otro' });
   assert.equal(ia.temperature, 2);
   assert.equal(ia.maxTokens, 16);
-  assert.equal(ia.historyLimit, 0);
+  assert.equal(ia.contextMessages, 0);
   assert.deepEqual(ia.commands, ['/ia']);
   assert.equal(ia.triggerMode, 'command');
+});
+
+test('convierte la configuración antigua de la IA', () => {
+  const legacy = normalizeIaConfig({ onlyConfiguredGroups: false, historyLimit: 5 });
+  assert.equal(legacy.groupScope, 'all');
+  assert.equal(legacy.contextMessages, 10);
+  assert.equal(normalizeIaConfig({}).groupScope, 'configured');
+  assert.equal(normalizeIaConfig({}).privateScope, 'selected');
+});
+
+test('reglas por chat: se validan y el formulario no las pisa', () => {
+  const rules = normalizeIaRules([
+    { chatId: '1@g.us', access: 'allow' },
+    { chatId: 'x', access: 'allow' },
+    { chatId: '2@s.whatsapp.net', access: 'inherit' },
+    { chatId: '3@lid', access: 'block', templateId: 'no-es-id' },
+    { chatId: '1@g.us', access: 'block' },
+  ]);
+  assert.deepEqual(rules.map((rule) => [rule.chatId, rule.access, rule.templateId]), [['1@g.us', 'block', null], ['3@lid', 'block', null]]);
+  const merged = mergeIaUpdate({ rules, memoryResetAt: 5 }, { rules: [], memoryResetAt: 0, systemPrompt: 'hola' });
+  assert.equal(merged.rules.length, 2);
+  assert.equal(merged.memoryResetAt, 5);
+  assert.equal(merged.systemPrompt, 'hola');
 });
 
 test('el disparador antiguo se convierte al nuevo', () => {

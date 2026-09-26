@@ -130,15 +130,18 @@ export function createAdminRouter({ collections, registry, scheduler }) {
     const user = await findAccountUser(collections, req.params.username);
     const permissions = normalizePermissions(req.body?.permissions);
     await collections.users.updateOne({ _id: user._id }, { $set: { permissions, updatedAt: new Date() } });
-    // Si su modo actual quedó prohibido, pasa al primer modo permitido.
+    // Si su modo actual quedó prohibido, pasa al primer modo permitido, y las
+    // extensiones que ya no puede usar se apagan.
     const account = await collections.accounts.findOne({ userId: String(user._id) });
     if (account) {
-      const config = await collections.configs.findOne({ accountId: account.accountId }, { projection: { modo: 1 } });
-      if (config?.modo && !permissions.modes[config.modo]) {
-        await collections.configs.updateOne(
-          { accountId: account.accountId },
-          { $set: { modo: allowedModes(permissions)[0], updatedAt: new Date() } },
-        );
+      const config = await collections.configs.findOne({ accountId: account.accountId }, { projection: { modo: 1, extensions: 1 } });
+      const set = {};
+      if (config?.modo && !permissions.modes[config.modo]) set.modo = allowedModes(permissions)[0];
+      for (const [id, allowed] of Object.entries(permissions.extensions)) {
+        if (!allowed && config?.extensions?.[id]?.enabled) set[`extensions.${id}.enabled`] = false;
+      }
+      if (Object.keys(set).length) {
+        await collections.configs.updateOne({ accountId: account.accountId }, { $set: { ...set, updatedAt: new Date() } });
         if (registry.runtimes.has(account.accountId)) await (await registry.get(account.accountId)).reloadConfig();
       }
     }

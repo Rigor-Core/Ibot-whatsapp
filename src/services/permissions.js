@@ -1,3 +1,5 @@
+import { EXTENSION_CATALOG } from '../extensions/index.js';
+
 // Permisos que el administrador asigna a cada usuario. Lo que no está permitido
 // no aparece en el panel del usuario y la API lo rechaza.
 export const PERMISSION_CATALOG = Object.freeze({
@@ -5,7 +7,7 @@ export const PERMISSION_CATALOG = Object.freeze({
     grupos: 'Grupos',
     chats: 'Chats',
     contactos: 'Contactos',
-    comandos: 'Comandos',
+    comandos: 'Comandos (en Ajustes)',
     configuracion: 'Configuración',
   },
   modes: {
@@ -23,12 +25,17 @@ export const PERMISSION_CATALOG = Object.freeze({
     pushNotifications: 'Notificaciones push',
     unlinkWhatsapp: 'Desvincular su WhatsApp',
   },
+  // Herramientas externas para la IA: apagadas hasta que el administrador las permite.
+  extensions: EXTENSION_CATALOG,
 });
 
 const MAX_GROUPS_LIMIT = 10000;
 
-function flags(section, raw = {}) {
-  return Object.fromEntries(Object.keys(PERMISSION_CATALOG[section]).map((key) => [key, raw?.[key] !== false]));
+function flags(section, raw = {}, defaultAllowed = true) {
+  return Object.fromEntries(Object.keys(PERMISSION_CATALOG[section]).map((key) => [
+    key,
+    defaultAllowed ? raw?.[key] !== false : raw?.[key] === true,
+  ]));
 }
 
 // Por defecto todo está permitido; solo se guarda lo que el administrador cambia.
@@ -38,6 +45,7 @@ export function normalizePermissions(raw = {}) {
     pages: flags('pages', raw?.pages),
     modes: flags('modes', raw?.modes),
     features: flags('features', raw?.features),
+    extensions: flags('extensions', raw?.extensions, false),
     limits: {
       maxGroups: Number.isInteger(maxGroups) && maxGroups > 0 ? Math.min(maxGroups, MAX_GROUPS_LIMIT) : 0,
     },
@@ -54,9 +62,9 @@ export function allowedModes(permissions) {
 // Páginas del panel de usuario y la sección de permisos que las controla.
 export const PAGE_PERMISSIONS = Object.freeze({
   '/grupos': 'grupos', '/grupos.html': 'grupos',
+  '/grupos-moderno': 'grupos', '/grupos-moderno.html': 'grupos',
   '/chats': 'chats', '/chats.html': 'chats',
   '/contactos': 'contactos', '/contactos.html': 'contactos',
-  '/comandos': 'comandos', '/comandos.html': 'comandos',
   '/configuracion': 'configuracion', '/configuracion.html': 'configuracion',
 });
 
@@ -72,6 +80,8 @@ const API_RULES = [
   { pattern: /^\/api\/bot\/push(\/|$)/, feature: 'pushNotifications' },
   { pattern: /^\/api\/bot\/logout$/, feature: 'unlinkWhatsapp' },
   { pattern: /^\/api\/bot\/ia(\/|$)/, feature: 'iaSettings' },
+  { pattern: /^\/api\/bot\/extensions(\/|$)/, feature: 'iaSettings' },
+  { pattern: /^\/api\/bot\/(storage|preferences)(\/|$)/, page: 'configuracion' },
 ];
 
 export function deniedApiPermission(permissions, method, path) {

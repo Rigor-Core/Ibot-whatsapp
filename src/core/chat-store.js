@@ -63,7 +63,9 @@ export class ChatStore {
     return map[mediaType] || 'Se envió un mensaje multimedia';
   }
 
-  recordMessage(message) {
+  // Registra un mensaje. Con persist=false solo actualiza la lista de chats y la
+  // vista en vivo (el usuario eligió no guardar ese tipo de mensajes).
+  recordMessage(message, { persist = true } = {}) {
     const entry = {
       ts: Date.now(),
       iso: new Date().toISOString(),
@@ -77,15 +79,18 @@ export class ChatStore {
       fromMe: !!message.fromMe,
       text: message.text || '',
       mediaType: message.mediaType || null,
-      preview: message.text || (message.mediaType ? this.mediaPreview(message.mediaType) : ''),
+      // Quién envió un mensaje propio: bot (IA/comandos), panel o programado.
+      origin: message.origin || null,
+      preview: message.preview || message.text || (message.mediaType ? this.mediaPreview(message.mediaType) : ''),
     };
 
-    // Save to MongoDB in background
-    this.collections.chatMessages.updateOne(
-      { accountId: this.accountId, id: entry.id },
-      { $set: entry, $setOnInsert: { createdAt: new Date() } },
-      { upsert: true }
-    ).catch(() => null);
+    if (persist) {
+      this.collections.chatMessages.updateOne(
+        { accountId: this.accountId, id: entry.id },
+        { $set: entry, $setOnInsert: { createdAt: new Date() } },
+        { upsert: true }
+      ).catch(() => null);
+    }
 
     this.upsertGroup(entry.groupId, {
       type: entry.type,
@@ -96,6 +101,15 @@ export class ChatStore {
 
     this.eventBus?.emit(`chat-message:${this.accountId}`, entry);
     return entry;
+  }
+
+  // Asocia la imagen o el sticker descargado a su mensaje y avisa al panel.
+  attachMedia(messageId, groupId, media) {
+    this.collections.chatMessages.updateOne(
+      { accountId: this.accountId, id: messageId },
+      { $set: { mediaId: media.id, mediaMime: media.mime } },
+    ).catch(() => null);
+    this.eventBus?.emit(`chat-media:${this.accountId}`, { id: messageId, groupId, mediaId: media.id, mediaType: media.kind });
   }
 
   // Lista de chats (grupos y/o contactos) ordenada por el último mensaje.
@@ -130,20 +144,45 @@ export class ChatStore {
     return rows;
   }
 
-  async readMessages(groupId, { limit = 200 } = {}) {
+  // Mensajes de un chat en orden cronológico. before/after (ms) permiten
+  // paginar hacia atrás o leer solo lo posterior a una fecha.
+  async readMessages(groupId, { limit = 200, before, after } = {}) {
     await this.init();
     const max = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+    const filter = { accountId: this.accountId, groupId };
+    const ts = {};
+    if (Number(before) > 0) ts.$lt = Number(before);
+    if (Number(after) > 0) ts.$gt = Number(after);
+    if (Object.keys(ts).length) filter.ts = ts;
     const rows = await this.collections.chatMessages
-      .find({ accountId: this.accountId, groupId })
+      .find(filter, { projection: { _id: 0, accountId: 0, iso: 0 } })
       .sort({ ts: -1 })
       .limit(max)
       .toArray();
     return rows.reverse();
   }
 
-  async clear() {
-    await this.collections.chatMessages.deleteMany({ accountId: this.accountId });
-    await this.collections.chatGroups.deleteMany({ accountId: this.accountId });
-    this.groups = new Map();
+  // Busca texto en el historial (todos los chats o algunos), del más reciente al más antiguo.
+  async searchMessages({ q, chatIds, since, until, fromMe, sender, limit = 30 } = {}) {
+    const filter = { accountId: this.accountId };
+    const words = String(q || '').trim().split(/\s+/).filter(Boolean).slice(0, 6);
+    if (words.length) {
+      filter.$and = words.map((word) => ({ text: { $regex: word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }));
+    }
+    if (Array.isArray(chatIds) && chatIds.length) filter.groupId = { $in: chatIds };
+    const ts = {};
+    if (Number(since) > 0) ts.$gte = Number(since);
+    if (Number(until) > 0) ts.$lte = Number(until);
+    if (Object.keys(ts).length) filter.ts = ts;
+    if (typeof fromMe === 'boolean') filter.fromMe = fromMe;
+    if (sender) {
+      const escaped = String(sender).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [{ senderName: { $regex: escaped, $options: 'i' } }, { senderId: { $regex: escaped, $options: 'i' } }];
+    }
+    return this.collections.chatMessages
+      .find(filter, { projection: { _id: 0, accountId: 0, iso: 0 } })
+      .sort({ ts: -1 })
+      .limit(Math.min(Math.max(Number(limit) || 30, 1), 200))
+      .toArray();
   }
 }

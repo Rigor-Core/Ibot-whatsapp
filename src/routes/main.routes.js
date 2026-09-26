@@ -19,14 +19,25 @@ import {
   publicProviderCatalog,
 } from '../services/ai-providers.js';
 import { getSystemSettingsCached } from '../services/settings-service.js';
-import { NOTIFICATION_TYPES, normalizeNotificationPrefs } from '../services/push-service.js';
+import { NOTIFICATION_GROUPS, NOTIFICATION_TYPES, normalizeNotificationPrefs } from '../services/push-service.js';
 import { allowedModes, deniedApiPermission, deniedConfigChange } from '../services/permissions.js';
+import { normalizePreferences } from '../services/preferences.js';
+import { normalizeStorageConfig } from '../services/storage-service.js';
+import { publicExtensionsConfig } from '../extensions/index.js';
+import { createMediaRouter } from './media.routes.js';
+import { createAiRouter } from './ai.routes.js';
 
+const CHAT_JID = /@(g\.us|s\.whatsapp\.net|lid)$/;
+
+// Configuración que ve el panel: sin claves de IA ni tokens de extensiones.
 function publicConfig(config) {
   return {
     ...publicSafeConfig(config),
+    ignoreOwnMessages: config?.ignoreOwnMessages !== false,
     ia: publicIaConfig(config?.ia),
     notifications: normalizeNotificationPrefs(config?.notifications),
+    storage: normalizeStorageConfig(config?.storage),
+    extensions: publicExtensionsConfig(config?.extensions),
   };
 }
 
@@ -36,11 +47,10 @@ function repartidorSettings(current = {}, body = {}) {
   return {
     globalLimit: Number.isInteger(globalLimit) && globalLimit >= 0 ? globalLimit : 1,
     filterEnabled: merged.filterEnabled !== false,
-    ignoreOwnMessages: merged.ignoreOwnMessages !== false,
   };
 }
 
-export function createMainRouter({ collections, registry, scheduler, push }) {
+export function createMainRouter({ collections, registry, scheduler, push, storage }) {
   const router = Router();
 
   // Solo los usuarios normales tienen cuenta de WhatsApp; el administrador no.
@@ -66,7 +76,15 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     ...publicSafeAccount(req.botAccount),
     permissions: req.panelUser.permissions,
     allowedModes: allowedModes(req.panelUser.permissions),
+    preferences: req.panelUser.preferences,
   }));
+
+  // Preferencias del panel de este usuario (por ejemplo, la vista de Grupos).
+  router.put('/api/bot/preferences', async (req, res) => {
+    const preferences = normalizePreferences({ ...req.panelUser.preferences, ...(req.body || {}) });
+    await collections.users.updateOne({ username: req.panelUser.username }, { $set: { preferences, updatedAt: now() } });
+    res.json(preferences);
+  });
 
   router.get('/api/bot/status', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
@@ -112,6 +130,8 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
       }
       if (body.respuestas !== undefined) set.respuestas = !!body.respuestas;
       if (body.activo !== undefined) set.activo = !!body.activo;
+      if (body.ignoreOwnMessages !== undefined) set.ignoreOwnMessages = body.ignoreOwnMessages !== false;
+      if (body.storage !== undefined) set.storage = normalizeStorageConfig({ ...normalizeStorageConfig(current.storage), ...body.storage });
       if (body.repartidor) set.repartidor = repartidorSettings(current.repartidor, body.repartidor);
       if (body.ia) {
         set.ia = mergeIaUpdate(current.ia, body.ia);
@@ -134,7 +154,9 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
       if (body.adminCommands !== undefined) {
         set.adminCommands = normalizeAdminCommandsConfig(body.adminCommands);
       }
-      if (body.notifications !== undefined) set.notifications = normalizeNotificationPrefs(body.notifications);
+      if (body.notifications !== undefined) {
+        set.notifications = normalizeNotificationPrefs({ ...normalizeNotificationPrefs(current.notifications), ...body.notifications });
+      }
       await collections.configs.updateOne({ accountId }, { $set: set }, { upsert: true });
       const runtime = await registry.get(accountId);
       await runtime.reloadConfig();
@@ -163,6 +185,7 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     res.json({
       publicKey: push.publicKey,
       types: NOTIFICATION_TYPES,
+      groups: NOTIFICATION_GROUPS,
       preferences: await push.preferences(accountId),
       subscribed: await push.isSubscribed(accountId, req.query.endpoint),
     });
@@ -194,12 +217,6 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     res.json({ ok: true, delivered });
   });
 
-  router.post('/api/bot/ia/reset-memory', async (req, res) => {
-    const runtime = await registry.get(resolveAccountId(req));
-    runtime.aiMemory.clear();
-    res.json({ ok: true });
-  });
-
   router.post('/api/bot/config/conn-notification/test', async (req, res) => {
     try {
       const accountId = resolveAccountId(req);
@@ -212,7 +229,7 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
         return res.status(400).json({ error: 'El grupo destinatario y el mensaje son requeridos.' });
       }
       const sendStart = performance.now();
-      await runtime.socket.sendMessage(groupId, { text: `[Prueba de Notificación]\n${message}` });
+      await runtime.send(groupId, { text: `[Prueba de Notificación]\n${message}` }, { origin: 'panel' });
       const sendTime = performance.now() - sendStart;
 
       console.log(
@@ -382,7 +399,8 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     res.json({ ok: true });
   });
 
-  // Chats registrados (grupos y contactos). ?type=group|contact filtra.
+  // Chats registrados (grupos y contactos). ?type=group|contact filtra. Incluye
+  // la regla de IA de cada chat (permitir/bloquear y plantilla).
   router.get('/api/bot/chats/groups', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
     const [configured, rows] = await Promise.all([
@@ -392,52 +410,63 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     const configuredMap = new Map(configured.map((g) => [g.groupId, g]));
     res.json(rows.map((g) => {
       const isGroup = String(g.groupId).endsWith('@g.us');
+      const rule = runtime.aiRuleFor(g.groupId);
       return {
         ...g,
         type: isGroup ? 'group' : 'contact',
         subject: configuredMap.get(g.groupId)?.nombre || (isGroup ? g.subject : runtime.chatName(g.groupId)) || g.groupId,
         configured: configuredMap.has(g.groupId),
+        isSelf: runtime.isSelfChat(g.groupId),
+        ai: { access: rule?.access || 'inherit', templateId: rule?.templateId || null },
       };
     }));
   });
 
-  // Envía un mensaje de texto a un grupo o contacto desde el panel.
+  // Envía texto, una imagen (con texto como pie) o un sticker de la biblioteca.
   router.post('/api/bot/chats/:chatId/send', async (req, res) => {
     try {
       const chatId = decodeURIComponent(req.params.chatId);
+      if (!CHAT_JID.test(chatId)) return res.status(400).json({ error: 'Chat inválido' });
       const text = String(req.body?.text || '').trim().slice(0, 4000);
-      if (!text) return res.status(400).json({ error: 'Escribe un mensaje' });
-      if (!/@(g\.us|s\.whatsapp\.net|lid)$/.test(chatId)) return res.status(400).json({ error: 'Chat inválido' });
       const runtime = await registry.get(resolveAccountId(req));
-      if (!runtime.socket || runtime.status !== 'connected') {
-        return res.status(400).json({ error: 'Tu WhatsApp no está conectado' });
+      if (req.body?.stickerId) {
+        const sticker = await runtime.stickers.resolve(runtime.accountId, String(req.body.stickerId));
+        if (!sticker) return res.status(404).json({ error: 'El sticker ya no existe' });
+        const content = await runtime.media.messageContent(runtime.accountId, sticker.mediaId);
+        await runtime.send(chatId, content, { origin: 'panel', mediaId: sticker.mediaId });
+        runtime.stickers.markUsed(runtime.accountId, sticker.id);
+        return res.json({ ok: true });
       }
-      await runtime.socket.sendMessage(chatId, { text });
+      if (req.body?.mediaId) {
+        const media = await runtime.media.meta(runtime.accountId, req.body.mediaId);
+        if (!media) return res.status(404).json({ error: 'La imagen ya no existe' });
+        const content = await runtime.media.messageContent(runtime.accountId, media.id, text);
+        await runtime.send(chatId, content, { origin: 'panel', mediaId: media.id });
+        return res.json({ ok: true });
+      }
+      if (!text) return res.status(400).json({ error: 'Escribe un mensaje' });
+      await runtime.send(chatId, { text }, { origin: 'panel' });
       res.json({ ok: true });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(/no está conectado/.test(err.message) ? 400 : 500).json({ error: err.message });
     }
   });
 
   router.get('/api/bot/chats/groups/:groupId/messages', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
-    const rows = await runtime.chatStore.readMessages(decodeURIComponent(req.params.groupId), { limit: req.query.limit });
+    const rows = await runtime.chatStore.readMessages(decodeURIComponent(req.params.groupId), {
+      limit: req.query.limit,
+      before: req.query.before,
+    });
     res.json(rows);
   });
 
-  router.get('/api/bot/chats/groups/:groupId/info', async (req, res) => {
-    const runtime = await registry.get(resolveAccountId(req));
-    const groupId = decodeURIComponent(req.params.groupId);
-    const group = runtime.chatStore.groups.get(groupId) || { groupId };
-    const configured = await collections.groups.findOne({ accountId: runtime.accountId, groupId });
-    const cached = await collections.chatGroups.findOne({ accountId: runtime.accountId, groupId });
-    
-    res.json({
-      ...group,
-      subject: configured?.nombre || group.subject || cached?.subject || groupId,
-      pictureUrl: cached?.pictureUrl || group.pictureUrl || null,
-      configured: configured ? normalizeGroupDoc(configured) : null
-    });
+  // Vacía los mensajes guardados de un chat (o solo sus imágenes y stickers).
+  router.delete('/api/bot/chats/groups/:groupId/messages', async (req, res) => {
+    const accountId = resolveAccountId(req);
+    const chatId = decodeURIComponent(req.params.groupId);
+    const result = await storage.clear(accountId, { scope: 'chats', chatIds: [chatId], mediaOnly: req.query.mediaOnly === '1' });
+    res.json({ ok: true, ...result });
   });
 
   router.get('/api/bot/directory/export.csv', async (req, res) => {
@@ -492,6 +521,7 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
       const scheduled = await scheduler.create({
         accountId,
         message: req.body?.message,
+        media: req.body?.media,
         target: req.body?.target,
         localDate: req.body?.localDate,
         localTime: req.body?.localTime,
@@ -539,8 +569,13 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
     const offMsg = registry.eventBus.on(`chat-message:${accountId}`, (entry) => res.write(`event: message\ndata: ${JSON.stringify(entry)}\n\n`));
     const offGroup = registry.eventBus.on(`chat-groups:${accountId}`, (entry) => res.write(`event: group\ndata: ${JSON.stringify(entry)}\n\n`));
-    req.on('close', () => { offMsg(); offGroup(); });
+    const offMedia = registry.eventBus.on(`chat-media:${accountId}`, (entry) => res.write(`event: media\ndata: ${JSON.stringify(entry)}\n\n`));
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
+    req.on('close', () => { offMsg(); offGroup(); offMedia(); clearInterval(heartbeat); });
   });
+
+  router.use(createMediaRouter({ collections, registry, storage, resolveAccountId }));
+  router.use(createAiRouter({ collections, registry, resolveAccountId }));
 
   return router;
 }

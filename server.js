@@ -13,6 +13,8 @@ import { createAdminRouter } from './src/routes/admin.routes.js';
 import rateLimit from 'express-rate-limit';
 import { MessageScheduler } from './src/services/message-scheduler.js';
 import { PushService } from './src/services/push-service.js';
+import { MediaStore } from './src/services/media-service.js';
+import { StorageService } from './src/services/storage-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,8 +80,11 @@ await ensureIndexes(db);
 const collections = getCollections(db);
 await runDataMigrations(collections);
 const registry = new RuntimeRegistry({ collections });
-const scheduler = new MessageScheduler({ collections, registry });
+const media = new MediaStore({ collections });
+const scheduler = new MessageScheduler({ collections, registry, media });
 scheduler.start();
+const storage = new StorageService({ collections, registry, media });
+storage.start();
 const push = new PushService({ collections, eventBus: registry.eventBus });
 await push.init();
 
@@ -98,11 +103,12 @@ app.get('/register.html', (req, res) => res.sendFile(path.join(publicDir, 'regis
 
 app.use(requirePanelAuth({ collections }));
 app.use(routePagesByRole);
-// La antigua página de logs ahora es Chats.
+// La antigua página de logs ahora es Chats y Comandos vive dentro de Ajustes.
 app.get(['/logs', '/logs.html'], (req, res) => res.redirect(301, '/chats.html'));
+app.get(['/comandos', '/comandos.html'], (req, res) => res.redirect('/configuracion.html#comandos'));
 app.use(express.static(publicDir, { extensions: ['html'] }));
 app.use(createAdminRouter({ collections, registry, scheduler }));
-app.use(createMainRouter({ collections, registry, scheduler, push }));
+app.use(createMainRouter({ collections, registry, scheduler, push, storage }));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 
@@ -139,6 +145,7 @@ async function shutdown(signal) {
   server.close();
   server.closeAllConnections();
   scheduler.stop();
+  storage.stop();
   await registry.stopAll('server_shutdown');
   await closeDB().catch(() => null);
   process.exit(0);

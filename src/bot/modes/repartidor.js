@@ -7,8 +7,8 @@ const EMPTY_OPTS = Object.freeze({});
 // activos. Todo lo que no es imprescindible para responder ocurre después del envío.
 export function handleRepartidor(extracted, ctx) {
   const settings = ctx.config.repartidor || {};
-  // Ignorar mensajes propios si ignoreOwnMessages está activado
-  if (settings.ignoreOwnMessages !== false && extracted.fromMe) return false;
+  // Opción global de todos los modos: ignorar los mensajes que envías tú.
+  if (ctx.config.ignoreOwnMessages !== false && extracted.fromMe) return false;
 
   const cfg = ctx.groupsById.get(extracted.groupId);
   if (!cfg || !cfg.responder) return false;

@@ -7,228 +7,503 @@
   <meta name="theme-color" content="#f5f6f8">
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/settings.css">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <style>
-    .jump { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 16px; padding-bottom: 2px; }
-    .jump a { padding: 7px 13px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-weight: 700; font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
-    .jump a:hover { color: var(--accent); border-color: var(--accent); }
-    section[id] { scroll-margin-top: 16px; }
-    .mode-help { display: grid; gap: 6px; font-size: 13px; color: var(--text-2); padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); }
-    #iaProviderInfo { font-size: 13px; color: var(--text-2); padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); }
-    #pushPrefs .switch-field, #pushPrefs label { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); font-weight: 600; flex: 1 1 240px; cursor: pointer; }
-    #pushPrefs input { accent-color: var(--accent); width: 18px; height: 18px; }
-    /* Orden de grupos */
-    .order-list { display: grid; gap: 10px; }
-    .order-cat-block { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
-    .order-cat-block.drag-over-cat { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    .order-cat-header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: grab; font-weight: 700; }
-    .order-cat-header.dragging, .order-item.dragging { opacity: .45; }
-    .order-cat-handle, .order-handle { color: var(--muted); cursor: grab; }
-    .order-cat-num, .order-num { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; display: inline-grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 800; }
-    .order-cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .order-cat-count { color: var(--muted); font-size: 12px; font-weight: 600; }
-    .order-cat-arrows, .order-arrows { display: flex; gap: 4px; }
-    .btn-arrow-cat, .btn-arrow { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 10px; }
-    .btn-arrow-cat:hover, .btn-arrow:hover { color: var(--accent); border-color: var(--accent); }
-    .order-cat-groups { display: grid; gap: 6px; padding: 0 10px 10px; }
-    .order-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); cursor: grab; }
-    .order-item.drag-over { border-color: var(--accent); }
-    .order-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-    .order-cat-groups-empty, .order-empty { color: var(--muted); font-size: 13px; padding: 8px; }
-  </style>
 </head>
 <body class="app" data-page="configuracion">
   <div class="app-shell">
     <nav class="app-nav" id="appNav" aria-label="Navegación principal"></nav>
     <main class="app-main">
       <div class="app-content">
-        <header class="page-head">
-          <div>
-            <h1 class="page-title">Ajustes</h1>
-            <div class="page-sub">Cómo trabaja tu bot y cómo te avisa</div>
-          </div>
-          <div class="spacer"></div>
-          <button class="btn" type="button" id="reloadBtn">Recargar</button>
-        </header>
+        <div class="settings" id="settings">
 
-        <nav class="jump" aria-label="Secciones">
-          <a href="#modoCard">Modo</a>
-          <a href="#iaCard" data-feature="iaSettings">Inteligencia artificial</a>
-          <a href="#pushCard" data-feature="pushNotifications">Notificaciones</a>
-          <a href="#connCard">Aviso al conectar</a>
-          <a href="#zoneCard">Zona horaria</a>
-          <a href="#orderCard" data-page="grupos">Orden de grupos</a>
-        </nav>
+          <!-- ═══ Menú de ajustes ═══ -->
+          <aside class="settings-menu">
+            <header class="page-head">
+              <div>
+                <h1 class="page-title">Ajustes</h1>
+                <div class="page-sub" id="accountLine">Tu bot, tu cuenta y el panel</div>
+              </div>
+            </header>
 
-        <!-- Modo -->
-        <section class="card" id="modoCard">
-          <div class="card-head"><div><div class="card-title">Modo del bot</div><div class="card-sub">Elige cómo trabaja tu WhatsApp.</div></div></div>
-          <div class="form-grid">
-            <label class="field col-6">Modo de operación
-              <select id="modo" data-modes>
-                <option value="repartidor">Repartidor · respuesta instantánea</option>
-                <option value="normal">Normal · comandos de grupo</option>
-                <option value="watch">Watch · solo observar</option>
-                <option value="ia">IA · inteligencia artificial</option>
-              </select>
-            </label>
-            <div class="col-6 mode-help">
-              <div><strong>Repartidor:</strong> responde al instante los pedidos de tus grupos activos.</div>
-              <div><strong>Normal:</strong> comandos, bienvenidas y despedidas.</div>
-              <div><strong>Watch:</strong> no responde; solo guarda los chats.</div>
-              <div><strong>IA:</strong> responde con el proveedor de IA que elijas.</div>
-            </div>
-          </div>
-          <hr class="divider">
-          <div class="section-label">Modo repartidor</div>
-          <div class="form-grid">
-            <label class="field col-6">Límite global de respuestas
-              <input id="globalLimit" type="number" min="0" placeholder="1">
-              <span class="hint">Tras este número de respuestas se desactivan las respuestas globales. 0 = sin límite. No afecta a los grupos independientes.</span>
-            </label>
-            <div class="col-6" style="display:flex;align-items:flex-start">
-              <label class="toggle-row" style="width:100%">
-                <span class="text">Filtro de palabras<small>Responde solo a mensajes que parecen pedidos.</small></span>
-                <span class="switch"><input type="checkbox" id="filterEnabled"><span></span></span>
+            <section class="card mode-card">
+              <div class="mode-card-head">
+                <div class="section-label" style="margin:0">Modo del bot</div>
+                <span class="hint" id="modeSaved"></span>
+              </div>
+              <div class="mode-chips" id="modeChips" role="radiogroup" aria-label="Modo del bot">
+                <button type="button" role="radio" data-mode="repartidor"><span class="mc-icon">⚡</span><span>Repartidor</span></button>
+                <button type="button" role="radio" data-mode="normal"><span class="mc-icon">⌘</span><span>Normal</span></button>
+                <button type="button" role="radio" data-mode="watch"><span class="mc-icon">👁</span><span>Watch</span></button>
+                <button type="button" role="radio" data-mode="ia"><span class="mc-icon">✦</span><span>IA</span></button>
+              </div>
+              <label class="toggle-row compact">
+                <span class="text">Ignorar mis propios mensajes<small>En todos los modos, el bot no reacciona a lo que tú escribes.</small></span>
+                <span class="switch"><input type="checkbox" id="ignoreOwn"><span></span></span>
               </label>
+              <details class="mode-info">
+                <summary>¿Qué hace cada modo?</summary>
+                <div class="mode-info-body">
+                  <div><strong>⚡ Repartidor:</strong> responde al instante los pedidos en tus grupos activos.</div>
+                  <div><strong>⌘ Normal:</strong> comandos de grupo, bienvenidas y despedidas.</div>
+                  <div><strong>👁 Watch:</strong> no responde; solo guarda los chats.</div>
+                  <div><strong>✦ IA:</strong> responde con inteligencia artificial en los grupos y chats que elijas, y te atiende en tu chat personal.</div>
+                  <div class="hint">Con <strong>Respuestas</strong> apagado (en Inicio) ningún modo responde, salvo los grupos independientes del repartidor.</div>
+                </div>
+              </details>
+            </section>
+
+            <nav class="settings-list" aria-label="Secciones de ajustes">
+              <button class="settings-item" type="button" data-go="repartidor">
+                <span class="si-icon tone-amber">⚡</span><span class="si-text"><strong>Repartidor</strong><small>Límite global y filtro de pedidos</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="ia" data-feature="iaSettings">
+                <span class="si-icon tone-violet">✦</span><span class="si-text"><strong>Inteligencia artificial</strong><small id="sumIa">Proveedor, plantillas y reglas</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="extensiones" data-feature="iaSettings" id="extensionsItem" hidden>
+                <span class="si-icon tone-green">⧉</span><span class="si-text"><strong>Extensiones</strong><small id="sumExt">Herramientas externas para la IA</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="comandos" data-page="comandos">
+                <span class="si-icon tone-blue">⌘</span><span class="si-text"><strong>Comandos</strong><small id="sumCommands">Comandos de grupo del modo Normal</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="notificaciones" data-feature="pushNotifications">
+                <span class="si-icon tone-red">🔔</span><span class="si-text"><strong>Notificaciones</strong><small>Alertas en tus dispositivos</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="almacenamiento">
+                <span class="si-icon tone-slate">🗄</span><span class="si-text"><strong>Almacenamiento</strong><small id="sumStorage">Qué se guarda y cuándo se borra</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="stickers">
+                <span class="si-icon tone-pink">☺</span><span class="si-text"><strong>Stickers</strong><small>Tu biblioteca de stickers</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="grupos" data-page="grupos">
+                <span class="si-icon tone-cyan">👥</span><span class="si-text"><strong>Grupos</strong><small id="sumGroups">Ventana clásica o moderna y orden</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="conexion">
+                <span class="si-icon tone-green">📡</span><span class="si-text"><strong>Aviso al conectar</strong><small>Mensaje cuando el bot se conecta</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="zona">
+                <span class="si-icon tone-blue">🕒</span><span class="si-text"><strong>Zona horaria</strong><small id="sumZone">Para programados y estadísticas</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item" type="button" data-go="apariencia">
+                <span class="si-icon tone-slate">◐</span><span class="si-text"><strong>Apariencia</strong><small id="sumTheme">Tema claro u oscuro</small></span><span class="si-chev"></span>
+              </button>
+              <button class="settings-item danger" type="button" id="logoutBtn">
+                <span class="si-icon tone-red">⎋</span><span class="si-text"><strong>Cerrar sesión</strong><small id="sumAccount">Salir del panel</small></span>
+              </button>
+            </nav>
+          </aside>
+
+          <!-- ═══ Pantallas ═══ -->
+          <section class="settings-pane" id="settingsPane" aria-live="polite">
+
+            <div class="settings-screen" data-screen="repartidor" data-title="Repartidor">
+              <div class="card">
+                <div class="form-grid">
+                  <label class="field col-6">Límite global de respuestas
+                    <input id="globalLimit" type="number" min="0" placeholder="1">
+                    <span class="hint">Tras este número de respuestas se apaga Respuestas. 0 = sin límite. No afecta a los grupos independientes.</span>
+                  </label>
+                  <div class="col-6">
+                    <label class="toggle-row">
+                      <span class="text">Filtro de palabras<small>Responde solo a mensajes que parecen pedidos.</small></span>
+                      <span class="switch"><input type="checkbox" id="filterEnabled"><span></span></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="form-actions"><button id="saveRepartidor" class="btn primary" type="button">Guardar</button></div>
+              </div>
             </div>
-          </div>
-          <div class="form-actions"><button id="saveMain" class="btn primary" type="button">Guardar modo</button></div>
-        </section>
 
-        <!-- IA -->
-        <section class="card" id="iaCard" data-feature="iaSettings">
-          <div class="card-head"><div><div class="card-title">Inteligencia artificial</div><div class="card-sub">Proveedor, personalidad y cuándo responde. Se usa en el modo IA, desde WhatsApp.</div></div></div>
-          <div class="form-grid">
-            <label class="field col-4">Proveedor<select id="iaProvider"></select></label>
-            <label class="field col-8">Modelo<input id="iaModel" list="iaModelOptions" placeholder="deepseek-chat"><datalist id="iaModelOptions"></datalist></label>
-            <label class="field col-12" id="iaBaseUrlField">URL base (compatible con OpenAI)<input id="iaBaseUrl" placeholder="http://localhost:11434/v1"></label>
-            <div class="col-12" id="iaProviderInfo"></div>
-            <label class="field col-8">API key del proveedor<input id="iaApiKey" type="password" autocomplete="new-password" placeholder="Dejar vacío para conservar la actual"></label>
-            <div class="col-4" style="display:flex;align-items:flex-end">
-              <label class="toggle-row" style="width:100%"><span class="text">Borrar la clave guardada</span><span class="switch"><input type="checkbox" id="iaClearApiKey"><span></span></span></label>
+            <!-- IA -->
+            <div class="settings-screen" data-screen="ia" data-title="Inteligencia artificial" data-feature="iaSettings">
+              <div class="card ia-summary">
+                <div class="ia-summary-main">
+                  <div class="card-title" id="iaSummaryTitle">—</div>
+                  <div class="card-sub" id="iaSummarySub"></div>
+                </div>
+                <span class="pill" id="iaSummaryState"></span>
+              </div>
+              <nav class="settings-list inner">
+                <button class="settings-item" type="button" data-go="ia-provider"><span class="si-text"><strong>Proveedor y modelo</strong><small>Servicio de IA, clave y modelo</small></span><span class="si-chev"></span></button>
+                <button class="settings-item" type="button" data-go="ia-when"><span class="si-text"><strong>Dónde y cuándo responde</strong><small>Grupos, chats privados, asistente personal y disparador</small></span><span class="si-chev"></span></button>
+                <button class="settings-item" type="button" data-go="ia-templates"><span class="si-text"><strong>Plantillas de comportamiento</strong><small id="sumTemplates">Asistente, vendedor, hazte pasar por mí…</small></span><span class="si-chev"></span></button>
+                <button class="settings-item" type="button" data-go="ia-rules"><span class="si-text"><strong>Reglas por chat</strong><small id="sumRules">Permitir, bloquear o usar otra plantilla</small></span><span class="si-chev"></span></button>
+                <button class="settings-item" type="button" data-go="ia-context"><span class="si-text"><strong>Contexto y memoria</strong><small>Mensajes anteriores y búsqueda en el historial</small></span><span class="si-chev"></span></button>
+                <button class="settings-item" type="button" data-go="ia-style"><span class="si-text"><strong>Estilo de respuesta</strong><small>Citar, mencionar, "escribiendo…" e instrucciones generales</small></span><span class="si-chev"></span></button>
+                <button class="settings-item" type="button" data-go="ia-test"><span class="si-text"><strong>Probar la IA</strong><small>Comprueba la clave y la plantilla sin usar WhatsApp</small></span><span class="si-chev"></span></button>
+              </nav>
             </div>
-          </div>
 
-          <hr class="divider">
-          <div class="section-label">Cuándo responde</div>
-          <div class="form-grid">
-            <label class="field col-4">Disparador
-              <select id="iaTriggerMode">
-                <option value="off">Desactivada</option>
-                <option value="all">A todos los mensajes</option>
-                <option value="command">Solo con un comando</option>
-                <option value="keyword">Cuando contiene un texto</option>
-              </select>
-            </label>
-            <label class="field col-8" id="iaCommandsField">Comandos (separados por coma)<input id="iaCommands" placeholder="/chat,/gpt"><span class="hint">Ejemplo en WhatsApp: /chat ¿qué hora es?</span></label>
-            <label class="field col-8" id="iaKeywordsField">Textos que activan la IA (separados por coma)<input id="iaKeywords" placeholder="bot,ayuda,precio"></label>
-          </div>
-          <div class="toggles" style="margin-top:12px">
-            <label class="toggle-row"><span class="text">Solo grupos configurados</span><span class="switch"><input type="checkbox" id="iaOnlyConfigured"><span></span></span></label>
-            <label class="toggle-row"><span class="text">Ignorar multimedia sin texto</span><span class="switch"><input type="checkbox" id="iaIgnoreMedia"><span></span></span></label>
-            <label class="toggle-row"><span class="text">Ignorar mis propios mensajes</span><span class="switch"><input type="checkbox" id="iaIgnoreOwn"><span></span></span></label>
-          </div>
-
-          <hr class="divider">
-          <div class="section-label">Estilo de respuesta</div>
-          <div class="toggles">
-            <label class="toggle-row"><span class="text">Citar el mensaje original</span><span class="switch"><input type="checkbox" id="iaReplyQuoted"><span></span></span></label>
-            <label class="toggle-row"><span class="text">Mencionar a quien preguntó</span><span class="switch"><input type="checkbox" id="iaMentionSender"><span></span></span></label>
-            <label class="toggle-row"><span class="text">Mostrar "escribiendo…"</span><span class="switch"><input type="checkbox" id="iaShowTyping"><span></span></span></label>
-            <label class="toggle-row"><span class="text">Decirle a la IA quién escribe</span><span class="switch"><input type="checkbox" id="iaIncludeSender"><span></span></span></label>
-          </div>
-
-          <hr class="divider">
-          <div class="section-label">Personalidad</div>
-          <div class="form-grid">
-            <label class="field col-12">Instrucciones del sistema<textarea id="iaSystemPrompt" placeholder="Actúa como un asistente…" style="min-height:120px"></textarea></label>
-            <label class="field col-12">Mensaje si la IA falla (vacío = no responder)<textarea id="iaFallback" style="min-height:64px"></textarea></label>
-          </div>
-
-          <details style="margin-top:16px">
-            <summary class="section-label" style="cursor:pointer">Parámetros avanzados</summary>
-            <div class="form-grid" style="margin-top:10px">
-              <label class="field col-4">Temperatura (creatividad)<input id="iaTemperature" type="number" step="0.1" min="0" max="2"></label>
-              <label class="field col-4">Máximo de tokens<input id="iaMaxTokens" type="number" min="16" max="8192"></label>
-              <label class="field col-4">Espera máxima (segundos)<input id="iaTimeout" type="number" min="3" max="120"></label>
-              <label class="field col-4">Memoria (mensajes previos)<input id="iaHistoryLimit" type="number" min="0" max="30"></label>
-              <label class="field col-4">Pausa entre respuestas (ms)<input id="iaCooldown" type="number" min="0"></label>
-              <label class="field col-4">Largo máximo (0 = sin límite)<input id="iaMaxReplyChars" type="number" min="0" max="20000"></label>
+            <div class="settings-screen" data-screen="ia-provider" data-parent="ia" data-title="Proveedor y modelo">
+              <div class="card">
+                <div class="form-grid">
+                  <label class="field col-6">Proveedor<select id="iaProvider"></select></label>
+                  <label class="field col-6">Modelo<input id="iaModel" list="iaModelOptions" placeholder="deepseek-chat"><datalist id="iaModelOptions"></datalist></label>
+                  <label class="field col-12" id="iaBaseUrlField">URL base (compatible con OpenAI)<input id="iaBaseUrl" placeholder="http://localhost:11434/v1"></label>
+                  <div class="col-12 info-box" id="iaProviderInfo"></div>
+                  <label class="field col-8">API key del proveedor<input id="iaApiKey" type="password" autocomplete="new-password" placeholder="Dejar vacío para conservar la actual"></label>
+                  <div class="col-4" id="iaClearKeyBox" style="display:flex;align-items:flex-end">
+                    <label class="toggle-row" style="width:100%"><span class="text">Borrar la clave guardada</span><span class="switch"><input type="checkbox" id="iaClearApiKey"><span></span></span></label>
+                  </div>
+                  <label class="field col-4">Temperatura (creatividad)<input id="iaTemperature" type="number" step="0.1" min="0" max="2"></label>
+                  <label class="field col-4">Máximo de tokens<input id="iaMaxTokens" type="number" min="16" max="8192"></label>
+                  <label class="field col-4">Espera máxima (segundos)<input id="iaTimeout" type="number" min="3" max="120"></label>
+                </div>
+                <div class="form-actions"><button class="btn primary" type="button" data-save-ia="provider">Guardar</button></div>
+              </div>
             </div>
-          </details>
 
-          <div class="form-actions">
-            <button id="iaResetMemory" class="btn" type="button">Reiniciar memoria</button>
-            <button id="saveAll" class="btn primary" type="button">Guardar IA</button>
-          </div>
-        </section>
+            <div class="settings-screen" data-screen="ia-when" data-parent="ia" data-title="Dónde y cuándo responde">
+              <div class="card">
+                <div class="section-label">Tu asistente personal</div>
+                <label class="toggle-row"><span class="text">Asistente en mi chat personal<small>Escríbete a ti mismo en WhatsApp ("Tú") y la IA te atiende: resúmenes de chats, búsquedas, extensiones…</small></span><span class="switch"><input type="checkbox" id="iaOwnerAssistant"><span></span></span></label>
+                <label class="field" style="margin-top:12px">En tu chat responde
+                  <select id="iaOwnerTrigger"><option value="all">A todo lo que escribes</option><option value="command">Solo si empiezas con un comando</option></select>
+                </label>
+                <hr class="divider">
+                <div class="section-label">Grupos</div>
+                <div class="form-grid">
+                  <label class="field col-6">¿En qué grupos?
+                    <select id="iaGroupScope">
+                      <option value="configured">Grupos activos en Grupos</option>
+                      <option value="all">Todos los grupos</option>
+                      <option value="selected">Solo los que permita en Reglas</option>
+                      <option value="none">En ningún grupo</option>
+                    </select>
+                  </label>
+                  <label class="field col-6">¿Cuándo responde en grupos?
+                    <select id="iaTriggerMode">
+                      <option value="off">Nunca en grupos</option>
+                      <option value="all">A todos los mensajes</option>
+                      <option value="command">Solo con un comando</option>
+                      <option value="keyword">Cuando contiene un texto</option>
+                      <option value="mention">Cuando me mencionan o responden</option>
+                    </select>
+                  </label>
+                  <label class="field col-12" id="iaCommandsField">Comandos (separados por coma)<input id="iaCommands" placeholder="/chat,/gpt"><span class="hint">Ejemplo en WhatsApp: /chat ¿qué hora es?</span></label>
+                  <label class="field col-12" id="iaKeywordsField">Textos que activan la IA (separados por coma)<input id="iaKeywords" placeholder="bot,ayuda,precio"></label>
+                </div>
+                <hr class="divider">
+                <div class="section-label">Chats privados</div>
+                <div class="form-grid">
+                  <label class="field col-6">¿En qué chats privados?
+                    <select id="iaPrivateScope">
+                      <option value="selected">Solo los que permita (Reglas, Chats o Contactos)</option>
+                      <option value="all">Todos los chats privados</option>
+                      <option value="none">En ningún chat privado</option>
+                    </select>
+                  </label>
+                  <label class="field col-6">¿Cuándo responde en privado?
+                    <select id="iaPrivateTrigger"><option value="all">A todos los mensajes</option><option value="same">Igual que en grupos</option></select>
+                  </label>
+                </div>
+                <hr class="divider">
+                <div class="form-grid">
+                  <div class="col-6"><label class="toggle-row"><span class="text">Ignorar multimedia sin texto</span><span class="switch"><input type="checkbox" id="iaIgnoreMedia"><span></span></span></label></div>
+                  <label class="field col-6">Pausa mínima por chat (ms)<input id="iaCooldown" type="number" min="0"></label>
+                </div>
+                <div class="form-actions"><button class="btn primary" type="button" data-save-ia="when">Guardar</button></div>
+              </div>
+            </div>
 
-        <!-- Notificaciones push -->
-        <section class="card" id="pushCard" data-feature="pushNotifications">
-          <div class="card-head"><div><div class="card-title">Notificaciones</div><div class="card-sub">Alertas en este dispositivo aunque el panel esté cerrado.</div></div></div>
-          <div class="hint" id="pushStatus" style="margin-bottom:12px">Comprobando este dispositivo…</div>
-          <div id="pushPrefs" style="display:flex;gap:10px;flex-wrap:wrap"></div>
-          <div class="form-actions">
-            <button id="pushTest" class="btn" type="button" hidden>Enviar prueba</button>
-            <button id="pushToggle" class="btn primary" type="button">Activar en este dispositivo</button>
-          </div>
-        </section>
+            <div class="settings-screen" data-screen="ia-templates" data-parent="ia" data-title="Plantillas de comportamiento">
+              <div class="card">
+                <div class="card-head">
+                  <div><div class="card-sub">La plantilla define quién es la IA y cómo habla. Elige una general y, si quieres, otra distinta por chat (engranaje en Chats o Reglas por chat).</div></div>
+                </div>
+                <div id="templateList" class="template-list"></div>
+                <div class="section-label" style="margin-top:18px">Crear una plantilla</div>
+                <div class="preset-grid" id="presetGrid"></div>
+              </div>
+            </div>
 
-        <!-- Aviso al conectar -->
-        <section class="card" id="connCard">
-          <div class="card-head"><div><div class="card-title">Aviso al conectar</div><div class="card-sub">Envía un mensaje a un grupo cada vez que el bot se conecta.</div></div></div>
-          <div class="form-grid">
-            <div class="col-12"><label class="toggle-row"><span class="text">Enviar aviso al conectar</span><span class="switch"><input type="checkbox" id="connNotifyEnabled"><span></span></span></label></div>
-            <label class="field col-6">Grupo<select id="connNotifyGroup"><option value="">Selecciona un grupo…</option></select></label>
-            <label class="field col-6">Mensaje<textarea id="connNotifyMessage" placeholder="¡Bot en línea!" style="min-height:42px"></textarea></label>
-          </div>
-          <div class="form-actions">
-            <button id="testConnNotify" class="btn" type="button">Enviar prueba</button>
-            <button id="saveConnNotify" class="btn primary" type="button">Guardar aviso</button>
-          </div>
-        </section>
+            <div class="settings-screen" data-screen="ia-template-edit" data-parent="ia-templates" data-title="Plantilla">
+              <form class="card" id="templateForm">
+                <div class="form-grid">
+                  <label class="field col-6">Nombre<input id="tplName" maxlength="60" required></label>
+                  <label class="field col-6">Descripción corta<input id="tplDescription" maxlength="200"></label>
+                  <label class="field col-12">Instrucciones: quién es y cómo se comporta
+                    <textarea id="tplInstructions" style="min-height:170px" placeholder="Eres el vendedor de… / Responde como si fueras yo…"></textarea>
+                    <span class="hint">Incluye datos concretos (productos, precios, horarios) y límites (qué no debe prometer).</span>
+                  </label>
+                  <label class="field col-12">Ejemplos de cómo escribo (uno por línea)
+                    <textarea id="tplStyle" style="min-height:110px" placeholder="jajaja va, ahorita te aviso&#10;sale, nos vemos 👋"></textarea>
+                    <span class="hint">La IA imita el tono, el largo, los emojis y las muletillas.</span>
+                  </label>
+                  <div class="col-12"><label class="toggle-row"><span class="text">Aprender de mis mensajes reales<small>Usa como ejemplo los últimos mensajes que escribiste tú (no los del bot).</small></span><span class="switch"><input type="checkbox" id="tplLearn"><span></span></span></label></div>
+                  <label class="field col-6">Stickers
+                    <select id="tplStickers"><option value="never">No enviar stickers</option><option value="sometimes">De vez en cuando</option><option value="often">Con frecuencia</option></select>
+                  </label>
+                  <label class="field col-6">Temperatura (vacío = la general)<input id="tplTemperature" type="number" step="0.1" min="0" max="2" placeholder="General"></label>
+                  <label class="field col-12" id="tplStickerNotesField">Cómo uso los stickers<textarea id="tplStickerNotes" style="min-height:70px" placeholder="Uso el sticker «risa» cuando algo me da gracia…"></textarea><span class="hint">Usa los stickers de tu biblioteca: su nombre le dice a la IA qué expresa cada uno.</span></label>
+                </div>
+                <div class="form-actions">
+                  <button class="btn ghost" type="button" data-back>Cancelar</button>
+                  <button class="btn primary" type="submit" id="tplSave">Guardar plantilla</button>
+                </div>
+              </form>
+            </div>
 
-        <!-- Zona horaria -->
-        <section class="card" id="zoneCard">
-          <div class="card-head"><div><div class="card-title">Zona horaria</div><div class="card-sub">Se usa para los mensajes programados y las estadísticas.</div></div></div>
-          <div class="form-grid">
-            <label class="field col-6">Zona horaria
-              <select id="timezone">
-                <option value="America/Hermosillo">America/Hermosillo (predeterminada)</option>
-                <option value="America/Mexico_City">America/Mexico_City</option>
-                <option value="America/Tijuana">America/Tijuana</option>
-                <option value="America/New_York">America/New_York</option>
-                <option value="America/Caracas">America/Caracas</option>
-                <option value="America/Bogota">America/Bogota</option>
-                <option value="America/Lima">America/Lima</option>
-                <option value="America/Santiago">America/Santiago</option>
-                <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
-                <option value="Europe/Madrid">Europe/Madrid</option>
-                <option value="UTC">UTC</option>
-              </select>
-            </label>
-          </div>
-          <div class="form-actions"><button class="btn primary" type="button" id="saveZone">Guardar zona horaria</button></div>
-        </section>
+            <div class="settings-screen" data-screen="ia-rules" data-parent="ia" data-title="Reglas por chat">
+              <div class="card">
+                <div class="card-head">
+                  <div><div class="card-sub">Permite o bloquea la IA en chats concretos y elige su plantilla. También puedes hacerlo desde el engranaje de Chats o desde Contactos.</div></div>
+                  <div class="spacer"></div>
+                  <button class="btn sm primary" type="button" id="addRule">Agregar chat</button>
+                </div>
+                <div id="ruleList" class="list"></div>
+              </div>
+            </div>
 
-        <!-- Orden de grupos -->
-        <section class="card" id="orderCard" data-page="grupos">
-          <div class="card-head"><div><div class="card-title">Orden de grupos</div><div class="card-sub">Arrastra o usa las flechas para ordenar cómo aparecen en Grupos.</div></div></div>
-          <div id="orderList" class="order-list"></div>
-          <div class="form-actions">
-            <button id="resetOrder" class="btn ghost" type="button">Restablecer orden</button>
-            <button id="saveOrder" class="btn primary" type="button">Guardar orden</button>
-          </div>
-        </section>
+            <div class="settings-screen" data-screen="ia-context" data-parent="ia" data-title="Contexto y memoria">
+              <div class="card">
+                <div class="form-grid">
+                  <label class="field col-6">Mensajes anteriores que lee
+                    <input id="iaContextMessages" type="number" min="0" max="200">
+                    <span class="hint">De la misma conversación, para entender de qué se habla. 0 = ninguno.</span>
+                  </label>
+                  <label class="field col-6">Pasos máximos con herramientas
+                    <input id="iaMaxToolSteps" type="number" min="1" max="8">
+                    <span class="hint">Cuántas búsquedas o acciones puede hacer antes de responder.</span>
+                  </label>
+                  <div class="col-12"><label class="toggle-row"><span class="text">Buscar en el historial cuando lo necesite<small>Si hablan de algo de hace días, la IA busca y lee los mensajes antiguos. En tu chat personal puede consultar todos tus chats.</small></span><span class="switch"><input type="checkbox" id="iaHistoryTools"><span></span></span></label></div>
+                </div>
+                <div class="info-box" style="margin-top:14px">La IA solo puede leer lo que el panel guarda. Revisa qué se guarda en <a href="#almacenamiento" data-go="almacenamiento"><strong>Almacenamiento</strong></a>.</div>
+                <div class="form-actions">
+                  <button id="iaResetMemory" class="btn" type="button">Reiniciar memoria</button>
+                  <button class="btn primary" type="button" data-save-ia="context">Guardar</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-screen" data-screen="ia-style" data-parent="ia" data-title="Estilo de respuesta">
+              <div class="card">
+                <div class="toggles">
+                  <label class="toggle-row"><span class="text">Citar el mensaje original</span><span class="switch"><input type="checkbox" id="iaReplyQuoted"><span></span></span></label>
+                  <label class="toggle-row"><span class="text">Mencionar a quien preguntó (grupos)</span><span class="switch"><input type="checkbox" id="iaMentionSender"><span></span></span></label>
+                  <label class="toggle-row"><span class="text">Mostrar "escribiendo…"</span><span class="switch"><input type="checkbox" id="iaShowTyping"><span></span></span></label>
+                  <label class="toggle-row"><span class="text">Decirle a la IA quién escribe</span><span class="switch"><input type="checkbox" id="iaIncludeSender"><span></span></span></label>
+                </div>
+                <div class="form-grid" style="margin-top:16px">
+                  <label class="field col-12">Instrucciones generales (si no hay plantilla)<textarea id="iaSystemPrompt" placeholder="Actúa como un asistente…" style="min-height:110px"></textarea></label>
+                  <label class="field col-8">Mensaje si la IA falla (vacío = no responder)<textarea id="iaFallback" style="min-height:64px"></textarea></label>
+                  <label class="field col-4">Largo máximo (0 = sin límite)<input id="iaMaxReplyChars" type="number" min="0" max="20000"></label>
+                </div>
+                <div class="form-actions"><button class="btn primary" type="button" data-save-ia="style">Guardar</button></div>
+              </div>
+            </div>
+
+            <div class="settings-screen" data-screen="ia-test" data-parent="ia" data-title="Probar la IA">
+              <form class="card" id="iaTestForm">
+                <div class="form-grid">
+                  <label class="field col-8">Mensaje de prueba<input id="iaTestText" placeholder="Hola, ¿qué venden?" required></label>
+                  <label class="field col-4">Plantilla<select id="iaTestTemplate"></select></label>
+                </div>
+                <div class="form-actions"><button class="btn primary" type="submit" id="iaTestBtn">Probar</button></div>
+                <div class="test-answer" id="iaTestAnswer" hidden></div>
+              </form>
+            </div>
+
+            <!-- Extensiones -->
+            <div class="settings-screen" data-screen="extensiones" data-title="Extensiones" data-feature="iaSettings">
+              <div class="info-box" style="margin-bottom:16px">Las extensiones dan a la IA acceso a otras aplicaciones. Se usan desde tu <strong>chat personal</strong> con el asistente, por ejemplo: «¿qué tengo pendiente hoy en Todoist?».</div>
+              <div id="extensionList"></div>
+            </div>
+
+            <!-- Comandos -->
+            <div class="settings-screen" data-screen="comandos" data-title="Comandos" data-page="comandos">
+              <div class="card">
+                <div class="card-head">
+                  <div><div class="card-title">Sistema de comandos</div><div class="card-sub">Funcionan en modo Normal. El prefijo y la activación se configuran en cada grupo.</div></div>
+                  <div class="spacer"></div>
+                  <label class="global-command-switch"><input id="commandsEnabled" type="checkbox"><span id="commandsEnabledLabel">Sistema desactivado</span></label>
+                </div>
+                <div class="card-sub" style="margin-bottom:10px">Elige cuáles funcionan y quién puede usarlos: user (miembro), admin u owner (propietario).</div>
+                <div id="commandRows"></div>
+                <div class="form-actions"><button id="saveCommands" class="btn primary" type="button">Guardar comandos</button></div>
+              </div>
+            </div>
+
+            <!-- Notificaciones -->
+            <div class="settings-screen" data-screen="notificaciones" data-title="Notificaciones" data-feature="pushNotifications">
+              <div class="card" id="pushCard">
+                <div class="hint" id="pushStatus" style="margin-bottom:12px">Comprobando este dispositivo…</div>
+                <div class="form-actions" style="margin-top:0;justify-content:flex-start">
+                  <button id="pushToggle" class="btn primary" type="button">Activar en este dispositivo</button>
+                  <button id="pushTest" class="btn" type="button" hidden>Enviar prueba</button>
+                </div>
+                <div id="pushPrefs" class="push-groups"></div>
+                <label class="field" style="margin-top:16px">Palabras clave (separadas por coma)
+                  <input id="pushKeywords" placeholder="urgente, pedido, pago">
+                  <span class="hint">Te avisa cuando un mensaje de cualquier chat las contiene (alerta «Palabras clave»).</span>
+                </label>
+                <div class="form-actions"><button id="pushKeywordsSave" class="btn" type="button">Guardar palabras</button></div>
+              </div>
+            </div>
+
+            <!-- Almacenamiento -->
+            <div class="settings-screen" data-screen="almacenamiento" data-title="Almacenamiento">
+              <div class="grid grid-4 usage" id="storageUsage"></div>
+              <div class="card" style="margin-top:16px">
+                <div class="section-label">Qué se guarda de los mensajes nuevos</div>
+                <div class="toggles">
+                  <label class="toggle-row"><span class="text">Textos<small>Necesario para que la IA tenga contexto.</small></span><span class="switch"><input type="checkbox" id="stSaveText"><span></span></span></label>
+                  <label class="toggle-row"><span class="text">Imágenes<small>Se ven en Chats.</small></span><span class="switch"><input type="checkbox" id="stSaveImages"><span></span></span></label>
+                  <label class="toggle-row"><span class="text">Stickers<small>Para verlos y guardarlos.</small></span><span class="switch"><input type="checkbox" id="stSaveStickers"><span></span></span></label>
+                </div>
+                <div class="field" style="margin-top:14px">No guardar nada de estos chats
+                  <div class="chip-list" id="stExcluded"></div>
+                </div>
+                <hr class="divider">
+                <div class="section-label">Borrado automático</div>
+                <div class="form-grid">
+                  <label class="field col-6">Borrar mensajes con más de
+                    <select id="stRetention">
+                      <option value="0">Nunca</option><option value="1">1 día</option><option value="3">3 días</option><option value="7">7 días</option>
+                      <option value="15">15 días</option><option value="30">30 días</option><option value="90">90 días</option><option value="180">6 meses</option><option value="365">1 año</option>
+                    </select>
+                  </label>
+                  <label class="field col-6">¿De qué chats?
+                    <select id="stRetentionScope">
+                      <option value="all">Todos</option><option value="groups">Solo grupos</option><option value="contacts">Solo contactos</option><option value="selected">Chats elegidos</option>
+                    </select>
+                  </label>
+                  <div class="field col-12" id="stRetentionChatsField">Chats elegidos<div class="chip-list" id="stRetentionChats"></div></div>
+                </div>
+                <div class="form-actions"><button class="btn primary" type="button" id="stSave">Guardar</button></div>
+              </div>
+              <div class="card">
+                <div class="section-label">Vaciar ahora</div>
+                <div class="form-grid">
+                  <label class="field col-4">Chats
+                    <select id="clScope"><option value="all">Todos</option><option value="groups">Solo grupos</option><option value="contacts">Solo contactos</option></select>
+                  </label>
+                  <label class="field col-4">Antigüedad
+                    <select id="clAge"><option value="0">Todo</option><option value="7">Más de 7 días</option><option value="30">Más de 30 días</option><option value="90">Más de 90 días</option></select>
+                  </label>
+                  <label class="field col-4">Qué borrar
+                    <select id="clWhat"><option value="all">Mensajes e imágenes</option><option value="media">Solo imágenes y stickers</option></select>
+                  </label>
+                </div>
+                <div class="form-actions"><button class="btn danger" type="button" id="clRun">Vaciar</button></div>
+                <div class="hint">Solo se borra lo guardado en el panel; en WhatsApp no se borra nada. Tu biblioteca de stickers se conserva.</div>
+              </div>
+            </div>
+
+            <!-- Stickers -->
+            <div class="settings-screen" data-screen="stickers" data-title="Stickers">
+              <div class="card">
+                <div class="card-head">
+                  <div><div class="card-sub">Guárdalos desde un chat (botón junto a un sticker recibido) o sube imágenes. El nombre le dice a la IA qué expresa cada uno.</div></div>
+                  <div class="spacer"></div>
+                  <label class="btn sm primary">Subir<input type="file" id="stickerUpload" accept="image/*" hidden multiple></label>
+                </div>
+                <div class="library" id="stickerLibrary"></div>
+              </div>
+            </div>
+
+            <!-- Grupos -->
+            <div class="settings-screen" data-screen="grupos" data-title="Grupos" data-page="grupos">
+              <div class="card">
+                <div class="section-label">Ventana de grupos</div>
+                <div class="view-options" id="groupsView" role="radiogroup">
+                  <button type="button" role="radio" data-view="classic"><strong>Clásica</strong><small>El diseño de siempre, oscuro y en tabla.</small></button>
+                  <button type="button" role="radio" data-view="modern"><strong>Moderna</strong><small>Nuevo diseño, cómodo en teléfono y PC.</small></button>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-head"><div><div class="card-title">Orden de grupos</div><div class="card-sub">Arrastra o usa las flechas para ordenar cómo aparecen en Grupos.</div></div></div>
+                <div id="orderList" class="order-list"></div>
+                <div class="form-actions">
+                  <button id="resetOrder" class="btn ghost" type="button">Restablecer orden</button>
+                  <button id="saveOrder" class="btn primary" type="button">Guardar orden</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Aviso al conectar -->
+            <div class="settings-screen" data-screen="conexion" data-title="Aviso al conectar">
+              <div class="card">
+                <div class="form-grid">
+                  <div class="col-12"><label class="toggle-row"><span class="text">Enviar aviso al conectar<small>Un mensaje a un grupo cada vez que el bot se conecta.</small></span><span class="switch"><input type="checkbox" id="connNotifyEnabled"><span></span></span></label></div>
+                  <label class="field col-6">Grupo<select id="connNotifyGroup"><option value="">Selecciona un grupo…</option></select></label>
+                  <label class="field col-6">Mensaje<textarea id="connNotifyMessage" placeholder="¡Bot en línea!" style="min-height:42px"></textarea></label>
+                </div>
+                <div class="form-actions">
+                  <button id="testConnNotify" class="btn" type="button">Enviar prueba</button>
+                  <button id="saveConnNotify" class="btn primary" type="button">Guardar</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Zona horaria -->
+            <div class="settings-screen" data-screen="zona" data-title="Zona horaria">
+              <div class="card">
+                <label class="field">Zona horaria
+                  <select id="timezone">
+                    <option value="America/Hermosillo">America/Hermosillo (predeterminada)</option>
+                    <option value="America/Mexico_City">America/Mexico_City</option>
+                    <option value="America/Tijuana">America/Tijuana</option>
+                    <option value="America/New_York">America/New_York</option>
+                    <option value="America/Caracas">America/Caracas</option>
+                    <option value="America/Bogota">America/Bogota</option>
+                    <option value="America/Lima">America/Lima</option>
+                    <option value="America/Santiago">America/Santiago</option>
+                    <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
+                    <option value="Europe/Madrid">Europe/Madrid</option>
+                    <option value="UTC">UTC</option>
+                  </select>
+                  <span class="hint">Se usa en los mensajes programados, las estadísticas y la fecha que conoce la IA.</span>
+                </label>
+                <div class="form-actions"><button class="btn primary" type="button" id="saveZone">Guardar</button></div>
+              </div>
+            </div>
+
+            <!-- Apariencia -->
+            <div class="settings-screen" data-screen="apariencia" data-title="Apariencia">
+              <div class="card">
+                <div class="section-label">Tema</div>
+                <div class="view-options three" id="themeOptions" role="radiogroup">
+                  <button type="button" role="radio" data-theme-choice="light"><span class="theme-swatch light"></span><strong>Claro</strong></button>
+                  <button type="button" role="radio" data-theme-choice="dark"><span class="theme-swatch dark"></span><strong>Oscuro</strong></button>
+                  <button type="button" role="radio" data-theme-choice="auto"><span class="theme-swatch auto"></span><strong>Automático</strong><small>Como tu dispositivo</small></button>
+                </div>
+                <div class="hint" style="margin-top:10px">El tema se guarda en este dispositivo.</div>
+              </div>
+            </div>
+
+            <div class="settings-empty" id="settingsEmpty">
+              <div><strong>Elige una sección</strong><div class="hint">Todos los cambios se guardan en tu cuenta.</div></div>
+            </div>
+          </section>
+        </div>
       </div>
     </main>
   </div>
+
+  <!-- Selector de chats (almacenamiento y reglas de IA) -->
+  <div class="modal" id="chatPicker">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="cpTitle">
+      <div class="modal-title" id="cpTitle">Elegir chats</div>
+      <input type="search" id="cpSearch" placeholder="Buscar chat…" style="margin:12px 0" aria-label="Buscar chat">
+      <div class="cp-list" id="cpList"></div>
+      <div class="form-actions">
+        <button class="btn ghost" type="button" data-close>Cancelar</button>
+        <button class="btn primary" type="button" id="cpDone">Listo</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/dialog.js"></script>
   <script src="/js/configuracion.js"></script>
+  <script src="/js/settings-ia.js"></script>
+  <script src="/js/settings-extensions.js"></script>
+  <script src="/js/settings-commands.js"></script>
+  <script src="/js/settings-storage.js"></script>
   <script src="/js/push.js"></script>
   <script src="/js/password-toggle.js"></script>
 </body>

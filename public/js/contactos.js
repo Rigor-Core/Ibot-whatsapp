@@ -1,10 +1,13 @@
 // Contactos: integrantes de los grupos, otros contactos, búsqueda y mensajes programados.
 (() => {
   const PAGE_SIZE = 100;
-  const state = { tab: 'groups', query: '', overview: null, pages: new Map() };
+  const state = { tab: 'groups', query: '', overview: null, pages: new Map(), aiRules: null };
   const dateTime = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
   const panel = $('#panel');
   const canSchedule = () => userPermissions()?.features.scheduleMessages !== false;
+  // Reglas de IA por chat (solo si el usuario puede configurar la IA).
+  const canAi = () => userPermissions()?.features.iaSettings !== false && !!state.aiRules;
+  const AI_OPTIONS = { inherit: 'IA: general', allow: 'IA: sí', block: 'IA: no' };
   const icon = (d) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   const ICONS = {
     copy: icon('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'),
@@ -27,6 +30,14 @@
     if (!ok) throw new Error('No se pudo copiar');
   }
 
+  function aiSelect(jid, name) {
+    if (!canAi() || !jid) return '';
+    const access = state.aiRules.get(jid)?.access || 'inherit';
+    return `<select class="input ai-select ${access}" data-ai-chat="${escapeHtml(jid)}" data-name="${escapeHtml(name || '')}" title="¿Responde la IA en este chat?" aria-label="IA en este chat">
+      ${Object.entries(AI_OPTIONS).map(([value, label]) => `<option value="${value}"${value === access ? ' selected' : ''}>${label}</option>`).join('')}
+    </select>`;
+  }
+
   // ─── Contactos ───────────────────────────────────────────────────────
   function contactItem(item, showOrigin = false) {
     const origin = showOrigin && item.lastChat ? ` · ${escapeHtml(item.lastChat)}` : '';
@@ -38,6 +49,7 @@
           <div class="meta">${escapeHtml(phoneLabel(item))}${origin}</div>
         </div>
         <div class="actions contact-actions">
+          ${aiSelect(item.jid, item.name)}
           <button class="btn sm icon ghost" type="button" data-action="copy" data-value="${escapeHtml(item.phone || item.jid)}" title="Copiar">${ICONS.copy}</button>
           ${item.hasPhone ? `<a class="btn sm icon ghost" href="https://wa.me/${escapeHtml(item.phone)}" target="_blank" rel="noopener noreferrer" title="Abrir en WhatsApp">${ICONS.open}</a>` : ''}
           ${canSchedule() ? `<button class="btn sm" type="button" data-action="schedule" data-type="user" data-jid="${escapeHtml(item.jid)}" data-name="${escapeHtml(item.name || phoneLabel(item))}">${ICONS.clock}<span class="label">Programar</span></button>` : ''}
@@ -91,7 +103,10 @@
             <div class="title" style="font-weight:700">${escapeHtml(group.nombre || group.groupId)}</div>
             <div class="hint">${Number(group.memberCount || 0)} integrante(s)</div>
           </div>
-          ${canSchedule() ? `<button class="btn sm" type="button" data-action="schedule" data-type="group" data-jid="${escapeHtml(group.groupId)}" data-name="${escapeHtml(group.nombre || group.groupId)}">${ICONS.clock}<span class="label">Programar</span></button>` : ''}
+          <span class="group-actions">
+            ${aiSelect(group.groupId, group.nombre)}
+            ${canSchedule() ? `<button class="btn sm" type="button" data-action="schedule" data-type="group" data-jid="${escapeHtml(group.groupId)}" data-name="${escapeHtml(group.nombre || group.groupId)}">${ICONS.clock}<span class="label">Programar</span></button>` : ''}
+          </span>
         </summary>
         <div class="members"><div class="empty">Cargando integrantes…</div></div>
       </details>`).join('');
@@ -138,6 +153,9 @@
     const [label, tone] = STATUS[row.status] || [row.status, ''];
     const repeat = row.repeat && row.repeat !== 'none' ? ` · 🔁 ${ScheduleDialog.REPEAT_LABELS[row.repeat]}` : '';
     const error = row.status === 'failed' && row.lastError ? `<div class="hint" style="color:var(--danger)">${escapeHtml(row.lastError)}</div>` : '';
+    const media = row.media?.mediaId
+      ? `<span class="attach-chip ${row.media.type}" style="margin-top:6px"><img src="${IbotApi.mediaUrl(row.media.mediaId)}" alt=""><span class="name">${row.media.type === 'sticker' ? 'Sticker' : 'Imagen'}</span></span>`
+      : '';
     const cancel = ['pending'].includes(row.status)
       ? `<button class="btn sm danger" type="button" data-action="cancel" data-id="${escapeHtml(row.id)}">Cancelar</button>` : '';
     return `
@@ -146,7 +164,8 @@
         <div class="main">
           <div class="title">${escapeHtml(row.target?.name || row.target?.jid)}</div>
           <div class="sched-when">${escapeHtml(dateTime.format(new Date(row.scheduledFor)))}<span class="hint">${escapeHtml(repeat)}</span></div>
-          <div class="sched-msg">${escapeHtml(row.message)}</div>
+          ${row.message ? `<div class="sched-msg">${escapeHtml(row.message)}</div>` : ''}
+          ${media}
           ${error}
         </div>
         <div class="actions"><span class="pill ${tone}">${label}</span>${cancel}</div>
@@ -225,6 +244,28 @@
     if (event.target.matches('details.group-block') && event.target.open) openGroup(event.target);
   }, true);
 
+  // Cambiar si la IA responde en un contacto o grupo.
+  panel.addEventListener('change', async (event) => {
+    const select = event.target.closest('select[data-ai-chat]');
+    if (!select) return;
+    const jid = select.dataset.aiChat;
+    const previous = state.aiRules.get(jid);
+    try {
+      const rule = await IbotApi.setIaRule(jid, { access: select.value, templateId: previous?.templateId || null, name: select.dataset.name });
+      if (rule.access === 'inherit' && !rule.templateId) state.aiRules.delete(jid);
+      else state.aiRules.set(jid, rule);
+      select.className = `input ai-select ${rule.access}`;
+      toast({ inherit: 'La IA seguirá la configuración general aquí', allow: 'La IA responderá en este chat', block: 'La IA no responderá en este chat' }[rule.access]);
+    } catch (error) {
+      select.value = previous?.access || 'inherit';
+      toast(error.message);
+    }
+  });
+  // Que el selector de IA no abra ni cierre el grupo al tocarlo.
+  panel.addEventListener('click', (event) => {
+    if (event.target.closest('select[data-ai-chat]')) event.preventDefault();
+  }, true);
+
   panel.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-action]');
     if (!button) return;
@@ -246,7 +287,7 @@
     }
     if (action === 'more') loadMore(button).catch((error) => { toast(error.message); button.disabled = false; });
     if (action === 'cancel') {
-      if (!confirm('¿Cancelar este mensaje programado?')) return;
+      if (!(await IbotDialog.confirm({ title: '¿Cancelar este mensaje programado?', confirmText: 'Cancelar envío', cancelText: 'Volver', danger: true }))) return;
       button.disabled = true;
       try {
         await IbotApi.cancelScheduledMessage(button.dataset.id);
@@ -274,6 +315,12 @@
   });
 
   loadUserBot()
+    .then(async (bot) => {
+      if (bot.permissions.features.iaSettings !== false) {
+        const rules = await IbotApi.iaRules().catch(() => null);
+        state.aiRules = rules ? new Map(rules.map((rule) => [rule.chatId, rule])) : null;
+      }
+    })
     .then(() => Promise.all([
       loadOverview(),
       canSchedule() ? IbotApi.scheduledMessages('pending').then((rows) => updateScheduledCount(rows.length)) : null,

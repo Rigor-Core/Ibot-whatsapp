@@ -1,3 +1,4 @@
+// Ajustes → Comandos: comandos de grupo del modo Normal y quién puede usarlos.
 const commandCatalog = [
   { name: 'help', description: 'Ayuda con los comandos disponibles.' },
   { name: 'status', description: 'Muestra el estado actual del bot.' },
@@ -111,32 +112,30 @@ function buildPayload() {
 }
 
 async function saveCommands() {
-  const button = $('#saveCommands');
-  button.disabled = true;
-  const previous = button.textContent;
-  button.textContent = 'Guardando...';
+  let adminCommands;
   try {
-    const adminCommands = buildPayload();
-    await IbotApi.saveConfig({ adminCommands });
-    currentCommands = adminCommands;
-    toast('Comandos guardados');
+    adminCommands = buildPayload();
   } catch (error) {
     toast(error.message);
-  } finally {
-    button.disabled = false;
-    button.textContent = previous;
+    return;
   }
+  await IbotSettings.save({ adminCommands }, $('#saveCommands'), 'Comandos guardados').catch(() => null);
 }
 
-async function initCommands() {
-  await loadUserBot();
-  const config = await IbotApi.config();
-  currentCommands = normalizedCommands(config.adminCommands);
-  $('#commandsEnabled').checked = currentCommands.enabled;
-  updateGlobalLabel();
-  renderCommands();
+function paintSummary() {
+  const active = Object.values(currentCommands.definitions).filter((definition) => definition.enabled).length;
+  $('#sumCommands').textContent = currentCommands.enabled ? `Activado · ${active} comando(s)` : 'Sistema desactivado';
+}
+
+// La sección no existe si el administrador no permite los comandos.
+if ($('#commandRows')) {
+  IbotSettings.onConfig((config) => {
+    currentCommands = normalizedCommands(config.adminCommands);
+    $('#commandsEnabled').checked = currentCommands.enabled;
+    updateGlobalLabel();
+    renderCommands();
+    paintSummary();
+  });
   $('#commandsEnabled').addEventListener('change', updateGlobalLabel);
   $('#saveCommands').addEventListener('click', saveCommands);
 }
-
-initCommands().catch((error) => toast(error.message));

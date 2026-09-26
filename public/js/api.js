@@ -31,6 +31,21 @@ const IbotApi = (() => {
     if (!res.ok) throw new Error(data?.error || data?.message || res.statusText);
     return data;
   }
+  // Sube un archivo (imagen o sticker) como cuerpo binario.
+  async function upload(url, file) {
+    const csrf = getCookie('ibot_csrf_token');
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': file.type || 'application/octet-stream', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+      body: file,
+    });
+    const text = await res.text();
+    let data;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) throw new Error(data?.error || res.statusText || 'No se pudo subir el archivo');
+    return data;
+  }
   async function requestBlob(url) {
     const res = await fetch(url, { credentials: 'same-origin' });
     if (res.status === 401) {
@@ -59,11 +74,14 @@ const IbotApi = (() => {
     const serialized = query.toString();
     return serialized ? `?${serialized}` : '';
   };
+  const json = (method, body) => ({ method, body: JSON.stringify(body ?? {}) });
   return {
     request, api,
+    mediaUrl: (id) => api(`/media/${encodeURIComponent(id)}`),
     authStatus: () => request('/api/auth/status'),
     logoutPanel: () => request('/api/auth/logout', { method: 'POST' }),
     bot: () => request('/api/bot'),
+    savePreferences: (body) => request(api('/preferences'), json('PUT', body)),
     status: () => request(api('/status')),
     start: () => request(api('/start'), { method: 'POST' }),
     stop: () => request(api('/stop'), { method: 'POST' }),
@@ -75,6 +93,25 @@ const IbotApi = (() => {
     toggleRespuestas: () => request(api('/respuestas/toggle'), { method: 'POST' }),
     iaProviders: () => request(api('/ia/providers')),
     resetIaMemory: () => request(api('/ia/reset-memory'), { method: 'POST' }),
+    iaTemplates: () => request(api('/ia/templates')),
+    createIaTemplate: (body) => request(api('/ia/templates'), json('POST', body)),
+    updateIaTemplate: (id, body) => request(api(`/ia/templates/${encodeURIComponent(id)}`), json('PUT', body)),
+    deleteIaTemplate: (id) => request(api(`/ia/templates/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+    setDefaultIaTemplate: (templateId) => request(api('/ia/default-template'), json('PUT', { templateId })),
+    iaRules: () => request(api('/ia/rules')),
+    setIaRule: (chatId, rule) => request(api(`/ia/rules/${encodeURIComponent(chatId)}`), json('PUT', rule)),
+    testIa: (body) => request(api('/ia/test'), json('POST', body)),
+    extensions: () => request(api('/extensions')),
+    saveExtension: (id, body) => request(api(`/extensions/${encodeURIComponent(id)}`), json('PUT', body)),
+    testExtension: (id) => request(api(`/extensions/${encodeURIComponent(id)}/test`), { method: 'POST' }),
+    uploadMedia: (file, kind = 'image') => upload(api(`/media?kind=${kind}`), file),
+    stickers: () => request(api('/stickers')),
+    saveSticker: (mediaId, name) => request(api('/stickers'), json('POST', { mediaId, name })),
+    uploadSticker: (file, name = '') => upload(api(`/stickers/upload${queryString({ name })}`), file),
+    renameSticker: (id, name) => request(api(`/stickers/${encodeURIComponent(id)}`), json('PUT', { name })),
+    deleteSticker: (id) => request(api(`/stickers/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+    storage: () => request(api('/storage')),
+    clearStorage: (body) => request(api('/storage/clear'), json('POST', body)),
     groups: () => request(api('/grupos')),
     categories: () => request(api('/grupos/categories')),
     createGroup: (body) => request(api('/grupos'), { method: 'POST', body: JSON.stringify(body) }),
@@ -84,9 +121,10 @@ const IbotApi = (() => {
     toggleGroupCommands: (id) => request(api(`/grupos/${encodeURIComponent(id)}/commands/toggle`), { method: 'PUT' }),
     toggleIndependent: () => request(api('/grupos/toggle_independent'), { method: 'POST' }),
     chatGroups: (q = '', type = '') => request(api(`/chats/groups${queryString({ q, type })}`)),
-    sendChatMessage: (chatId, text) => request(api(`/chats/${encodeURIComponent(chatId)}/send`), { method: 'POST', body: JSON.stringify({ text }) }),
-    chatMessages: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/messages?limit=300`)),
-    chatInfo: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/info`)),
+    // payload: { text } | { mediaId, text } (imagen con pie) | { stickerId }
+    sendChatMessage: (chatId, payload) => request(api(`/chats/${encodeURIComponent(chatId)}/send`), json('POST', payload)),
+    chatMessages: (groupId, before) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/messages${queryString({ limit: 150, before })}`)),
+    clearChat: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/messages`), { method: 'DELETE' }),
     directory: (params = {}, opts = {}) => request(api(`/directory${queryString(params)}`), opts),
     directoryExport: (params = {}) => requestBlob(api(`/directory/export.csv${queryString(params)}`)),
     scheduledMessages: (status = '', limit = 100) => request(api(`/scheduled-messages${queryString({ status, limit })}`)),

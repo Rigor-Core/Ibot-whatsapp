@@ -5,6 +5,12 @@ const ScheduleDialog = (() => {
   let target = null;
   let onDone = null;
   let modal = null;
+  // Adjunto opcional: { type: 'image' | 'sticker', mediaId, name }
+  let attachment = null;
+  const ATTACH_ICONS = {
+    image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+    sticker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>',
+  };
 
   const REPEAT_LABELS = { none: 'Una sola vez', daily: 'Todos los días', weekdays: 'Lunes a viernes', weekly: 'Cada semana' };
 
@@ -45,8 +51,13 @@ const ScheduleDialog = (() => {
         <div class="modal-sub" id="sdTarget"></div>
         <div class="form-grid">
           <label class="field col-12">Mensaje
-            <textarea id="sdMessage" maxlength="4000" required placeholder="Escribe el mensaje que se enviará…"></textarea>
+            <textarea id="sdMessage" maxlength="4000" placeholder="Escribe el mensaje que se enviará…"></textarea>
           </label>
+          <div class="col-12" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <label class="btn sm" title="Adjuntar una imagen">${ATTACH_ICONS.image}<span>Imagen</span><input type="file" id="sdImage" accept="image/*" hidden></label>
+            <button class="btn sm" type="button" id="sdSticker" title="Elegir un sticker">${ATTACH_ICONS.sticker}<span>Sticker</span></button>
+            <div id="sdAttachment"></div>
+          </div>
           <div class="col-12">
             <div class="section-label">Cuándo</div>
             <div class="segmented" id="sdPresets">
@@ -72,6 +83,23 @@ const ScheduleDialog = (() => {
       if (event.target === modal || event.target.closest('[data-close]')) close();
       const preset = event.target.closest('[data-preset]');
       if (preset) PRESETS[preset.dataset.preset]();
+      if (event.target.closest('[data-detach]')) setAttachment(null);
+    });
+    modal.querySelector('#sdImage').addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+      try {
+        const media = await IbotApi.uploadMedia(file, 'image');
+        setAttachment({ type: 'image', mediaId: media.id, name: file.name });
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    modal.querySelector('#sdSticker').addEventListener('click', (event) => {
+      StickerPicker.open(event.currentTarget, {
+        onPick: (sticker) => setAttachment({ type: 'sticker', mediaId: sticker.mediaId, name: sticker.name }),
+      });
     });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && modal.classList.contains('open')) close();
@@ -79,8 +107,23 @@ const ScheduleDialog = (() => {
     modal.querySelector('form').addEventListener('submit', submit);
   }
 
+  function setAttachment(next) {
+    attachment = next;
+    const box = modal.querySelector('#sdAttachment');
+    box.innerHTML = attachment ? `
+      <span class="attach-chip ${attachment.type}">
+        <img src="${IbotApi.mediaUrl(attachment.mediaId)}" alt="">
+        <span class="name">${escapeHtml(attachment.type === 'sticker' ? `Sticker: ${attachment.name}` : attachment.name)}</span>
+        <button class="btn ghost sm icon" type="button" data-detach aria-label="Quitar adjunto">✕</button>
+      </span>` : '';
+    modal.querySelector('#sdMessage').placeholder = attachment?.type === 'image'
+      ? 'Texto de la imagen (opcional)…'
+      : attachment ? 'Texto que se enviará después del sticker (opcional)…' : 'Escribe el mensaje que se enviará…';
+  }
+
   function close() {
     modal.classList.remove('open');
+    StickerPicker.close();
     target = null;
   }
 
@@ -89,9 +132,12 @@ const ScheduleDialog = (() => {
     const button = modal.querySelector('#sdSave');
     button.disabled = true;
     try {
+      const message = modal.querySelector('#sdMessage').value.trim();
+      if (!message && !attachment) throw new Error('Escribe un mensaje o adjunta una imagen o un sticker');
       const scheduled = await IbotApi.scheduleMessage({
         target,
-        message: modal.querySelector('#sdMessage').value.trim(),
+        message,
+        media: attachment ? { type: attachment.type, mediaId: attachment.mediaId } : null,
         localDate: modal.querySelector('#sdDate').value,
         localTime: modal.querySelector('#sdTime').value,
         repeat: modal.querySelector('#sdRepeat').value,
@@ -114,6 +160,7 @@ const ScheduleDialog = (() => {
     modal.querySelector('#sdTarget').textContent = `${nextTarget.type === 'group' ? 'Grupo' : 'Contacto'}: ${nextTarget.name}`;
     modal.querySelector('#sdZone').textContent = `Hora de ${timeZone}.`;
     modal.querySelector('#sdMessage').value = '';
+    setAttachment(null);
     modal.querySelector('#sdRepeat').value = 'none';
     const today = localParts(new Date());
     modal.querySelector('#sdDate').min = `${today.year}-${today.month}-${today.day}`;

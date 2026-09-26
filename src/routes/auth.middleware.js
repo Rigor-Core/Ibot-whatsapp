@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { ObjectId } from 'mongodb';
 import { panelSecret } from '../core/secrets.js';
 import { PAGE_PERMISSIONS, normalizePermissions } from '../services/permissions.js';
+import { normalizePreferences } from '../services/preferences.js';
 import { assertUserCapacity, getSystemSettings } from '../services/settings-service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -17,9 +18,11 @@ export const ROLE_ACCOUNT = 'account';
 
 // Páginas del panel de usuario y del panel de administración.
 const USER_PAGES = new Set([
-  '/', '/index', '/index.html', '/grupos', '/grupos.html', '/contactos', '/contactos.html',
-  '/comandos', '/comandos.html', '/configuracion', '/configuracion.html', '/chats', '/chats.html',
+  '/', '/index', '/index.html', '/grupos', '/grupos.html', '/grupos-moderno', '/grupos-moderno.html',
+  '/contactos', '/contactos.html', '/configuracion', '/configuracion.html', '/chats', '/chats.html',
 ]);
+// La ventana de Grupos tiene dos vistas; cada usuario elige la suya en Ajustes.
+const GROUPS_PAGES = new Set(['/grupos', '/grupos.html', '/grupos-moderno', '/grupos-moderno.html']);
 const ADMIN_PAGES = new Set(['/admin', '/admin.html']);
 
 export function homePathFor(role) {
@@ -286,6 +289,7 @@ export function requirePanelAuth({ collections }) {
           username: user.username,
           role: user.role || ROLE_ACCOUNT,
           permissions: normalizePermissions(user.permissions),
+          preferences: normalizePreferences(user.preferences),
         };
         // CSRF validation for all state-changing requests
         const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
@@ -319,6 +323,10 @@ export function routePagesByRole(req, res, next) {
   // Páginas que el administrador no permite a este usuario.
   const page = PAGE_PERMISSIONS[req.path];
   if (role !== ROLE_OWNER && page && !req.panelUser.permissions?.pages[page]) return res.redirect('/');
+  // /grupos.html sirve la vista (clásica o moderna) que el usuario eligió.
+  if (role !== ROLE_OWNER && GROUPS_PAGES.has(req.path)) {
+    req.url = req.panelUser.preferences?.groupsView === 'modern' ? '/grupos-moderno.html' : '/grupos.html';
+  }
   return next();
 }
 

@@ -50,7 +50,12 @@ export default [
         CSS: 'readonly',
         CustomEvent: 'readonly',
         localStorage: 'readonly',
-        ScheduleDialog: 'readonly'
+        ScheduleDialog: 'readonly',
+        history: 'readonly',
+        IbotDialog: 'readonly',
+        StickerPicker: 'readonly',
+        GroupForm: 'readonly',
+        IbotSettings: 'readonly'
       }
     },
     rules: {

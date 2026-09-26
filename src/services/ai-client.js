@@ -9,7 +9,9 @@ export class AiChatClient {
     this.providerName = providerName;
   }
 
-  async chat({ messages, temperature = 0.6, maxTokens = 500, extraBody = {} }) {
+  // Devuelve el mensaje del modelo: texto y, si se ofrecieron herramientas,
+  // las llamadas que pide (tool_calls).
+  async complete({ messages, tools, toolChoice = 'auto', temperature = 0.6, maxTokens = 500, extraBody = {} }) {
     if (!this.baseUrl) throw new Error(`${this.providerName}: falta la URL base`);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -26,15 +28,25 @@ export class AiChatClient {
           temperature,
           max_tokens: maxTokens,
           stream: false,
+          ...(tools?.length ? { tools, tool_choice: toolChoice } : {}),
           ...extraBody,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const detail = data?.error?.message || data?.message || response.statusText;
-        throw new Error(`${this.providerName} ${response.status}: ${detail}`);
+        throw Object.assign(new Error(`${this.providerName} ${response.status}: ${detail}`), { status: response.status });
       }
-      return String(data?.choices?.[0]?.message?.content || '').trim();
+      const message = data?.choices?.[0]?.message || {};
+      const toolCalls = Array.isArray(message.tool_calls)
+        ? message.tool_calls.filter((call) => call?.function?.name)
+        : [];
+      return {
+        content: String(message.content || '').trim(),
+        toolCalls,
+        // DeepSeek con razonamiento pide recibirlo de vuelta junto a las herramientas.
+        reasoning: typeof message.reasoning_content === 'string' ? message.reasoning_content : null,
+      };
     } catch (error) {
       if (error?.name === 'AbortError') {
         throw new Error(`${this.providerName}: la solicitud excedió el tiempo máximo`, { cause: error });

@@ -6,12 +6,14 @@ import makeWASocket, {
   Browsers,
   isJidBroadcast,
   isJidNewsletter,
+  downloadMediaMessage,
+  generateMessageIDV2,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import { FileLogStore } from '../core/file-log-store.js';
 import { ChatStore } from '../core/chat-store.js';
 import { WriteBehindQueue } from '../core/write-behind-queue.js';
-import { ensureDir, now } from '../core/utils.js';
+import { createLimiter, ensureDir, now } from '../core/utils.js';
 import { getAccountSessionPath } from '../services/account-service.js';
 import { normalizeGroupDoc } from './utils/group-normalizer.js';
 import { extractMessage } from './utils/message-extractor.js';
@@ -21,6 +23,11 @@ import { handleIa } from './modes/ia.js';
 import { hasRegisteredCreds, useMongoDBAuthState } from './utils/mongo-auth-state.js';
 import { TtlCache } from './utils/ttl-cache.js';
 import { normalizeIaConfig } from '../services/ai-providers.js';
+import { normalizeTemplate } from '../services/ai-templates.js';
+import { normalizeStorageConfig } from '../services/storage-service.js';
+import { normalizeNotificationPrefs } from '../services/push-service.js';
+import { normalizeExtensionsConfig } from '../extensions/index.js';
+import { MediaStore, StickerLibrary } from '../services/media-service.js';
 import {
   handleAdminCommand,
   normalizeAdminCommandsConfig,
@@ -49,6 +56,21 @@ const WARMUP_INTERVAL_MS = 10 * 60 * 1000;
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000, 15000];
 // Solo se avisa de una desconexión si no se recupera sola en este tiempo.
 const DISCONNECT_ALERT_MS = 60 * 1000;
+// Imágenes y stickers recibidos que se guardan como máximo (los más grandes se omiten).
+const MAX_CAPTURE_BYTES = { image: 10 * 1024 * 1024, sticker: 2 * 1024 * 1024 };
+// Tiempo mínimo entre dos alertas del mismo tipo para un mismo chat.
+const ALERT_THROTTLE_MS = { mention: 30_000, privateMessage: 60_000, keyword: 60_000, iaReply: 60_000, iaError: 10 * 60_000 };
+
+// Baileys escribe muchísimo en su logger: se descarta para no saturar disco ni consola.
+const SILENT_LOGGER = {
+  level: 'silent',
+  trace: () => {},
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  child: () => SILENT_LOGGER,
+};
 
 function normalizeContactJid(value) {
   const raw = String(value || '').trim().split('/')[0];
@@ -88,7 +110,16 @@ export class BotRuntime {
     this.groupMetadataCache = new Map();
     this.contactsMap = new Map();
     this.aiMemory = new Map();
+    this.aiRules = new Map();
+    this.aiTemplates = new Map();
     this.recentlyBanned = new Map();
+    this.media = new MediaStore({ collections });
+    this.stickers = new StickerLibrary({ collections, media: this.media });
+    // Mensajes que envió el propio bot (IA, panel, programados): no se procesan
+    // como si los hubieras escrito tú y quedan marcados en el chat.
+    this.sentByBot = new TtlCache({ ttlMs: 15 * 60 * 1000, maxEntries: 5000 });
+    this.alertTimes = new Map();
+    this.mediaQueue = createLimiter(2);
     this.socket = null;
     this.authState = null;
     this.config = null;
@@ -115,8 +146,52 @@ export class BotRuntime {
   }
 
   // Publica una alerta; el servicio de push decide según las preferencias del usuario.
-  notify(type, { title, body, tag }) {
-    this.eventBus.emit('notify', { accountId: this.accountId, type, title, body, tag, url: '/' });
+  notify(type, { title, body, tag, url = '/' }) {
+    this.eventBus.emit('notify', { accountId: this.accountId, type, title, body, tag, url });
+  }
+
+  // Igual que notify(), pero como mucho una vez por chat en el intervalo indicado.
+  notifyThrottled(type, key, message) {
+    if (this.config?.notifications?.[type] === false) return;
+    const last = this.alertTimes.get(key) || 0;
+    if (Date.now() - last < (ALERT_THROTTLE_MS[type] || 60_000)) return;
+    this.alertTimes.set(key, Date.now());
+    if (this.alertTimes.size > 2000) this.alertTimes.delete(this.alertTimes.keys().next().value);
+    this.notify(type, message);
+  }
+
+  // Número propio (y su LID) para reconocer mis mensajes, menciones y mi chat personal.
+  selfJid() {
+    return normalizeContactJid(this.socket?.user?.id);
+  }
+
+  selfIds() {
+    return new Set([this.socket?.user?.id, this.socket?.user?.lid]
+      .map((jid) => normalizeContactJid(jid).split('@')[0])
+      .filter(Boolean));
+  }
+
+  // El chat "Tú" (mensajes a mí mismo): ahí funciona el asistente personal.
+  isSelfChat(jid) {
+    if (!jid || isGroupChat(jid)) return false;
+    return this.selfIds().has(normalizeContactJid(jid).split('@')[0]);
+  }
+
+  mentionsMe(extracted) {
+    const mine = this.selfIds();
+    if (!mine.size) return false;
+    const idOf = (jid) => normalizeContactJid(jid).split('@')[0];
+    return extracted.mentionedJids.some((jid) => mine.has(idOf(jid))) || mine.has(idOf(extracted.quotedParticipant));
+  }
+
+  // Envío desde el bot (IA, comandos, panel, programados). El id se reserva
+  // antes de enviar para reconocer el mensaje cuando WhatsApp lo devuelva.
+  async send(chatId, content, { origin = 'panel', mediaId = null, ...options } = {}) {
+    const sock = this.socket;
+    if (!sock || this.status !== 'connected') throw new Error('Tu WhatsApp no está conectado');
+    const messageId = generateMessageIDV2(sock.user?.id);
+    this.sentByBot.set(messageId, { origin, mediaId });
+    return sock.sendMessage(chatId, content, { ...options, messageId });
   }
 
   clearDisconnectAlert() {
@@ -147,6 +222,7 @@ export class BotRuntime {
     await this.reloadGroups();
     await this.loadCounter();
     await this.loadContacts();
+    await this.reloadAiTemplates();
     this.hasSession = await this.hasSavedSession();
   }
 
@@ -212,6 +288,25 @@ export class BotRuntime {
     });
   }
 
+  // Regla de IA de un chat. Un contacto puede aparecer con su número o con su
+  // LID según el chat, así que se prueban ambos.
+  aiRuleFor(chatId) {
+    const direct = this.aiRules.get(chatId);
+    if (direct || isGroupChat(chatId)) return direct || null;
+    const contact = this.contactsMap.get(normalizeContactJid(chatId));
+    for (const alias of [contact?.phoneNumber, contact?.lid, contact?.id].filter(Boolean)) {
+      const rule = this.aiRules.get(alias);
+      if (rule) return rule;
+    }
+    return null;
+  }
+
+  // Plantillas de comportamiento de la IA (se recargan al editarlas en el panel).
+  async reloadAiTemplates() {
+    const docs = await this.collections.aiTemplates.find({ accountId: this.accountId }).toArray().catch(() => []);
+    this.aiTemplates = new Map(docs.map((doc) => [String(doc._id), { id: String(doc._id), ...normalizeTemplate(doc) }]));
+  }
+
   async loadCounter() {
     const counter = await this.collections.counters.findOne({ accountId: this.accountId, name: 'OrdenesRecibidas' });
     this.state.ordenesRecibidas = Number(counter?.seq || 0);
@@ -225,6 +320,11 @@ export class BotRuntime {
     if (!BOT_MODES.includes(this.config.modo)) this.config.modo = DEFAULT_MODE;
     this.config.adminCommands = normalizeAdminCommandsConfig(this.config.adminCommands);
     this.config.ia = normalizeIaConfig(this.config.ia);
+    this.config.ignoreOwnMessages = this.config.ignoreOwnMessages !== false;
+    this.config.storage = normalizeStorageConfig(this.config.storage);
+    this.config.notifications = normalizeNotificationPrefs(this.config.notifications);
+    this.config.extensions = normalizeExtensionsConfig(this.config.extensions);
+    this.aiRules = new Map(this.config.ia.rules.map((rule) => [rule.chatId, rule]));
     if (previousMode && previousMode !== this.config.modo) {
       this.logger.info('runtime', 'Modo cambiado', { modo: this.config.modo });
       if (this.config.modo === 'repartidor') this.warmUpActiveGroups();
@@ -379,22 +479,12 @@ export class BotRuntime {
       const version = versionInfo.version;
       this.logger.info('baileys', 'Iniciando socket', { version, latest: versionInfo.isLatest });
 
-      // Create a dummy logger to suppress verbose Baileys logging and avoid disk/console clutter.
-      const childLogger = {
-        trace: () => {},
-        debug: () => {},
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        child: () => childLogger
-      };
-
       const sock = makeWASocket({
         auth: {
           creds: state.creds,
-          keys: makeCacheableSignalKeyStore(state.keys, childLogger),
+          keys: makeCacheableSignalKeyStore(state.keys, SILENT_LOGGER),
         },
-        logger: childLogger,
+        logger: SILENT_LOGGER,
         version,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
@@ -469,7 +559,9 @@ export class BotRuntime {
           if (extracted.senderId && extracted.senderName && !extracted.fromMe) {
             this.saveContact(extracted.senderId, extracted.senderName);
           }
-          if (isTrackableChat(extracted.groupId)) this.recordChatMessage(extracted);
+          if (isTrackableChat(extracted.groupId) && !this.config.storage.excludedChats.includes(extracted.groupId)) {
+            this.recordChatMessage(extracted, this.persistPolicy(extracted));
+          }
         }
       });
       await this.updateStatus(isReconnecting ? 'reconnecting' : 'connecting');
@@ -511,6 +603,15 @@ export class BotRuntime {
       this.reconnectAttempts = 0;
       this.connectTime = Math.floor(Date.now() / 1000);
       await this.collections.qrHistory.deleteMany({ accountId: this.accountId }).catch(() => null);
+      // Solo se avisa si antes se avisó de un problema o de un QR pendiente.
+      if (this.state.disconnectAlerted || this.state.qrNotified) {
+        this.notify('connected', {
+          title: this.state.qrNotified ? 'WhatsApp vinculado' : 'WhatsApp reconectado',
+          body: 'Tu bot volvió a estar en línea.',
+        });
+        this.state.disconnectAlerted = false;
+        this.state.qrNotified = false;
+      }
       // Enviar notificación si está configurada antes de pasar al estado connected
       await this.sendConnectionNotification().catch((err) => {
         this.logger.error('connection', 'Error enviando notificación de conexión', { error: err.message });
@@ -538,6 +639,7 @@ export class BotRuntime {
         if (loggedOut) {
             this.logger.warn('connection', 'Sesión invalidada (401). Se requiere nuevo inicio de sesión.');
             if (!this.isStopping) {
+              this.state.disconnectAlerted = true;
               this.notify('disconnected', {
                 title: 'Sesión de WhatsApp cerrada',
                 body: 'WhatsApp cerró la sesión del bot. Entra al panel y escanea el QR para volver a vincularlo.',
@@ -554,6 +656,7 @@ export class BotRuntime {
         this.disconnectAlertTimer = setTimeout(() => {
           this.disconnectAlertTimer = null;
           if (this.status === 'connected' || this.isStopping) return;
+          this.state.disconnectAlerted = true;
           this.notify('disconnected', {
             title: 'WhatsApp desconectado',
             body: 'Tu WhatsApp lleva más de un minuto desconectado. El bot sigue intentando reconectar.',
@@ -633,7 +736,7 @@ export class BotRuntime {
 
   // Los modos son exclusivos. La respuesta del modo sale antes que cualquier
   // trabajo secundario (contactos, chats, metadata) para que el repartidor
-  // responda lo más rápido posible.
+  // responda lo más rápido posible. Solo la IA atiende también chats privados.
   async handleMessages(payload) {
     const msgs = payload?.messages || [];
     const isHistory = payload?.type === 'append';
@@ -642,9 +745,13 @@ export class BotRuntime {
       const msgStartTime = performance.now();
       const extracted = extractMessage(msg);
       const mode = this.config?.modo;
-      const live = extracted.isGroup && !isHistory && this.isLiveMessage(extracted);
+      if (extracted.fromMe) extracted.senderId = this.selfJid() || extracted.senderId;
+      const isNew = !isHistory && this.isLiveMessage(extracted);
+      const sentByBot = extracted.fromMe && !!this.sentByBot.get(extracted.id);
+      const dispatch = isNew && !sentByBot
+        && (extracted.isGroup || (mode === 'ia' && isTrackableChat(extracted.groupId)));
 
-      if (live) {
+      if (dispatch) {
         const ctx = this.createModeContext();
         ctx.msgStartTime = msgStartTime;
         ctx.extractionTime = performance.now() - msgStartTime;
@@ -653,18 +760,87 @@ export class BotRuntime {
 
       // Chats y contactos se registran en cualquier modo; en modo repartidor el
       // registro se aplaza para que nunca compita con la respuesta.
-      if (mode === 'repartidor') setImmediate(() => this.trackMessage(extracted));
-      else this.trackMessage(extracted);
+      if (mode === 'repartidor') setImmediate(() => this.trackMessage(extracted, isNew));
+      else this.trackMessage(extracted, isNew);
     }
   }
 
-  trackMessage(extracted) {
+  trackMessage(extracted, isNew = false) {
     if (extracted.senderId && extracted.senderName && !extracted.fromMe) {
       this.saveContact(extracted.senderId, extracted.senderName);
     }
     if (!isTrackableChat(extracted.groupId)) return;
-    this.recordChatMessage(extracted);
+    if (!this.config.storage.excludedChats.includes(extracted.groupId)) {
+      const policy = this.persistPolicy(extracted);
+      const entry = this.recordChatMessage(extracted, policy);
+      if (policy.persist && policy.media) this.captureMedia(extracted, entry);
+    }
     if (extracted.isGroup) this.refreshGroupMetadata(extracted.groupId).catch(() => null);
+    if (isNew && !extracted.fromMe) this.alertFor(extracted);
+  }
+
+  // Qué se guarda de un mensaje según las opciones de almacenamiento.
+  persistPolicy(extracted) {
+    const storage = this.config.storage;
+    const media = (extracted.mediaType === 'image' && storage.saveImages)
+      || (extracted.mediaType === 'sticker' && storage.saveStickers);
+    const persist = media || (storage.saveText && (!!extracted.text || !!extracted.mediaType));
+    return { persist, media, keepText: storage.saveText };
+  }
+
+  // Descarga en segundo plano (máximo dos a la vez) la imagen o el sticker de
+  // un mensaje y lo asocia al chat. Lo enviado por el bot ya está guardado.
+  captureMedia(extracted, entry) {
+    const kind = extracted.mediaType;
+    const sent = extracted.fromMe ? this.sentByBot.get(extracted.id) : null;
+    if (sent?.mediaId) {
+      this.media.meta(this.accountId, sent.mediaId)
+        .then((media) => media && this.chatStore.attachMedia(entry.id, extracted.groupId, media))
+        .catch(() => null);
+      return;
+    }
+    if (extracted.mediaSize > MAX_CAPTURE_BYTES[kind]) return;
+    this.mediaQueue(async () => {
+      const sock = this.socket;
+      if (!sock) return;
+      const buffer = await downloadMediaMessage(extracted.raw, 'buffer', {}, {
+        reuploadRequest: sock.updateMediaMessage,
+        logger: SILENT_LOGGER,
+      });
+      const media = await this.media.save(this.accountId, { buffer, kind, origin: 'chat' });
+      this.chatStore.attachMedia(entry.id, extracted.groupId, media);
+    }).catch((error) => {
+      this.logger.debug('media', 'No se pudo guardar un archivo recibido', { groupId: extracted.groupId, error: error.message });
+    });
+  }
+
+  // Alertas de mensajes: menciones, mensajes privados y palabras clave.
+  alertFor(extracted) {
+    const prefs = this.config.notifications;
+    const chatId = extracted.groupId;
+    const url = `/chats.html#${encodeURIComponent(chatId)}`;
+    const body = extracted.text ? extracted.text.slice(0, 160) : this.chatStore.mediaPreview(extracted.mediaType);
+    const from = extracted.senderName || 'Alguien';
+    if (extracted.isGroup && prefs.mention && this.mentionsMe(extracted)) {
+      this.notifyThrottled('mention', `mention:${chatId}`, {
+        title: `${from} te mencionó en ${this.chatName(chatId)}`, body, url, tag: `mention-${chatId}`,
+      });
+    }
+    if (!extracted.isGroup && prefs.privateMessage) {
+      this.notifyThrottled('privateMessage', `pm:${chatId}`, {
+        title: `Mensaje de ${this.chatName(chatId, extracted)}`, body, url, tag: `pm-${chatId}`,
+      });
+    }
+    if (prefs.keyword && prefs.keywords.length && extracted.text) {
+      const plain = (value) => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const text = plain(extracted.text);
+      const keyword = prefs.keywords.find((word) => text.includes(plain(word)));
+      if (keyword) {
+        this.notifyThrottled('keyword', `kw:${chatId}`, {
+          title: `«${keyword}» en ${this.chatName(chatId, extracted)}`, body: `${from}: ${body}`, url, tag: `kw-${chatId}`,
+        });
+      }
+    }
   }
 
   // Solo se procesan mensajes recibidos con la sesión abierta y de menos de 15 s.
@@ -751,8 +927,9 @@ export class BotRuntime {
       this.warmUpGroup(update.id).catch(() => null);
     }
 
-    // Bienvenidas y despedidas forman parte de los comandos (modo normal).
-    if (this.config?.modo !== 'normal' || !this.config?.adminCommands?.enabled) return;
+    // Bienvenidas y despedidas forman parte de los comandos (modo normal) y,
+    // como toda respuesta, requieren "Respuestas" activado.
+    if (this.config?.modo !== 'normal' || !this.config?.adminCommands?.enabled || !this.config?.respuestas) return;
     const settings = normalizeGroupCommandSettings(group?.commandSettings);
     if (!settings.enabled || !['add', 'remove'].includes(update.action)) return;
 
@@ -767,7 +944,7 @@ export class BotRuntime {
       const template = update.action === 'add' ? settings.welcomeMessage : settings.farewellMessage;
       const text = renderGroupEventMessage(template, { userJid: participant, groupName });
       if (!text) continue;
-      await this.socket?.sendMessage(update.id, { text, mentions: [participant] });
+      await this.send(update.id, { text, mentions: [participant] }, { origin: 'bot' });
     }
   }
 
@@ -781,9 +958,10 @@ export class BotRuntime {
     return contact?.name || incomingName || cached?.subject || `+${chatId.split('@')[0]}`;
   }
 
-  recordChatMessage(extracted) {
+  recordChatMessage(extracted, { persist = true, keepText = true } = {}) {
     this.directorySnapshot = null;
-    this.chatStore.recordMessage({
+    const sent = extracted.fromMe ? this.sentByBot.get(extracted.id) : null;
+    return this.chatStore.recordMessage({
       id: extracted.id,
       groupId: extracted.groupId,
       type: extracted.isGroup ? 'group' : 'contact',
@@ -791,9 +969,12 @@ export class BotRuntime {
       senderId: extracted.senderId,
       senderName: extracted.senderName,
       fromMe: extracted.fromMe,
-      text: extracted.text,
+      text: keepText ? extracted.text : '',
+      // Si el texto no se guarda, la vista previa tampoco lo muestra.
+      preview: !keepText && extracted.text && !extracted.mediaType ? 'Mensaje de texto' : undefined,
       mediaType: extracted.mediaType,
-    });
+      origin: sent?.origin || null,
+    }, { persist });
   }
 
   async refreshGroupMetadata(groupId, force = false) {
@@ -848,7 +1029,9 @@ export class BotRuntime {
       chatStore: this.chatStore,
       queue: this.queue,
       aiMemory: this.aiMemory,
+      runtime: this,
       runtimeStatus: this.status,
+      send: (chatId, content, options) => this.send(chatId, content, { origin: 'bot', ...options }),
       getGroupMetadata: (groupId) => this.getGroupMetadata(groupId),
       markBanned: (groupId, participant) => this.markBanned(groupId, participant),
       unmarkBanned: (groupId, participant) => this.unmarkBanned(groupId, participant),

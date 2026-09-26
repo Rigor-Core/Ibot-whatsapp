@@ -23,11 +23,20 @@
     .group-block[open] > summary .chev { transform: rotate(90deg); }
     .group-block .members { border-top: 1px solid var(--border); padding: 4px 14px 10px; }
     .contact-actions .btn { min-width: 34px; }
+    .group-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+    .app select.ai-select { flex: none; width: auto; min-height: 32px; padding: 4px 26px 4px 10px; font-size: 12px; font-weight: 700; border-radius: 999px; }
+    .app select.ai-select.allow { color: var(--good); border-color: var(--good); }
+    .app select.ai-select.block { color: var(--danger); border-color: var(--danger); }
     .sched-when { font-weight: 700; }
     .sched-msg { color: var(--text-2); font-size: 13px; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .load-more { display: flex; justify-content: center; padding-top: 10px; }
     @media (max-width: 640px) {
-      .contact-actions .label { display: none; }
+      .contact-actions .label, .group-actions .label { display: none; }
+      .group-block > summary { flex-wrap: wrap; }
+      .group-block > summary .main { flex: 1 1 calc(100% - 90px); }
+      .group-actions { width: 100%; padding-left: 74px; }
+      .list .list-item:has(.ai-select) { flex-wrap: wrap; }
+      .list .list-item:has(.ai-select) .contact-actions { width: 100%; padding-left: 52px; }
     }
   </style>
 </head>
@@ -70,6 +79,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/dialog.js"></script>
+  <script src="/js/sticker-picker.js"></script>
   <script src="/js/schedule.js"></script>
   <script src="/js/contactos.js"></script>
 </body>

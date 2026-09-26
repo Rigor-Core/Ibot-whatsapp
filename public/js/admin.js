@@ -533,7 +533,7 @@
   });
 
   // ─── Permisos ────────────────────────────────────────────────────────
-  const PERMISSION_SECTIONS = { pages: 'Páginas', modes: 'Modos', features: 'Funciones' };
+  const PERMISSION_SECTIONS = { pages: 'Páginas', modes: 'Modos', features: 'Funciones', extensions: 'Extensiones de la IA (apagadas por defecto)' };
 
   async function openPermissions(username) {
     try {
@@ -561,7 +561,7 @@
 
   $('#permForm').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const permissions = { pages: {}, modes: {}, features: {}, limits: { maxGroups: Number($('#permMaxGroups').value || 0) } };
+    const permissions = { pages: {}, modes: {}, features: {}, extensions: {}, limits: { maxGroups: Number($('#permMaxGroups').value || 0) } };
     $('#permBody').querySelectorAll('input[data-section]').forEach((input) => {
       permissions[input.dataset.section][input.dataset.key] = input.checked;
     });

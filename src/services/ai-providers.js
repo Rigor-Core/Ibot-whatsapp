@@ -69,20 +69,38 @@ export const IA_DEFAULTS = Object.freeze({
   model: 'deepseek-chat',
   baseUrl: '',
   temperature: 0.6,
-  maxTokens: 500,
-  timeoutMs: 20000,
-  historyLimit: 8,
+  maxTokens: 700,
+  timeoutMs: 25000,
   perGroupCooldownMs: 3000,
-  // Cuándo responde: off (desactivada), all (todos los mensajes),
-  // command (mensajes que empiezan con un comando) o keyword (contienen un texto).
+  // Cuándo responde en grupos: off (desactivada), all (todos los mensajes),
+  // command (empiezan con un comando), keyword (contienen un texto) o
+  // mention (te mencionan o responden a tu mensaje).
   triggerMode: 'command',
   commands: ['/chat', '/gpt'],
   keywords: [],
-  systemPrompt: 'Eres un asistente útil, breve y profesional dentro de un grupo de WhatsApp. Responde en español salvo que el usuario pida otro idioma.',
+  // En qué grupos: configured (los activos en Grupos), all, selected (solo
+  // los permitidos en las reglas) o none.
+  groupScope: 'configured',
+  // En qué chats privados: all, selected (solo los permitidos) o none.
+  privateScope: 'selected',
+  // En chats privados: responde a todo o usa el mismo disparador que en grupos.
+  privateTrigger: 'all',
+  // Asistente personal en tu propio chat ("Tú"): todo o solo con comando.
+  ownerAssistant: true,
+  ownerTrigger: 'all',
+  // Mensajes previos de la conversación que recibe la IA como contexto.
+  contextMessages: 20,
+  // La IA puede buscar en el historial de los chats cuando lo necesita.
+  historyTools: true,
+  maxToolSteps: 4,
+  defaultTemplateId: '',
+  // La IA ignora el contexto anterior a esta fecha ("Reiniciar memoria").
+  memoryResetAt: 0,
+  // Reglas por chat: permitir, bloquear y plantilla propia.
+  rules: [],
+  systemPrompt: 'Eres un asistente útil, breve y profesional en WhatsApp. Responde en español salvo que te pidan otro idioma.',
   fallbackText: 'No pude generar una respuesta en este momento.',
-  onlyConfiguredGroups: true,
   ignoreMedia: true,
-  ignoreOwnMessages: true,
   replyQuoted: true,
   mentionSender: false,
   showTyping: true,
@@ -90,7 +108,11 @@ export const IA_DEFAULTS = Object.freeze({
   maxReplyChars: 0,
 });
 
-export const TRIGGER_MODES = Object.freeze(['off', 'all', 'command', 'keyword']);
+export const TRIGGER_MODES = Object.freeze(['off', 'all', 'command', 'keyword', 'mention']);
+export const GROUP_SCOPES = Object.freeze(['configured', 'all', 'selected', 'none']);
+export const PRIVATE_SCOPES = Object.freeze(['all', 'selected', 'none']);
+export const RULE_ACCESS = Object.freeze(['inherit', 'allow', 'block']);
+const MAX_RULES = 1000;
 const LEGACY_TRIGGERS = { required: 'command', all: 'all', optional: 'all' };
 
 // Cada usuario tiene su propio profile en Dipisik (su chat dedicado).
@@ -135,6 +157,25 @@ export function validateCustomBaseUrl(value) {
   return url.toString().replace(/\/+$/, '');
 }
 
+const pick = (value, options, fallback) => (options.includes(value) ? value : fallback);
+
+// Reglas por chat: solo se guardan las que cambian algo (permitir/bloquear o plantilla).
+export function normalizeIaRules(raw) {
+  const byChat = new Map();
+  for (const rule of Array.isArray(raw) ? raw : []) {
+    const chatId = String(rule?.chatId || '').trim();
+    if (!/@(g\.us|s\.whatsapp\.net|lid)$/.test(chatId)) continue;
+    const access = pick(rule.access, RULE_ACCESS, 'inherit');
+    const templateId = /^[a-f0-9]{24}$/.test(String(rule.templateId || '')) ? String(rule.templateId) : null;
+    if (access === 'inherit' && !templateId) {
+      byChat.delete(chatId);
+      continue;
+    }
+    byChat.set(chatId, { chatId, access, templateId, name: text(rule.name, 120) });
+  }
+  return [...byChat.values()].slice(-MAX_RULES);
+}
+
 // Normaliza la configuración del modo IA (incluidas las guardadas por
 // versiones anteriores, que no tenían proveedor y guardaban una sola apiKey).
 export function normalizeIaConfig(raw = {}) {
@@ -158,16 +199,26 @@ export function normalizeIaConfig(raw = {}) {
     temperature: clampNumber(raw.temperature, 0, 2, IA_DEFAULTS.temperature),
     maxTokens: Math.round(clampNumber(raw.maxTokens, 16, 8192, IA_DEFAULTS.maxTokens)),
     timeoutMs: Math.round(clampNumber(raw.timeoutMs, 3000, 120000, IA_DEFAULTS.timeoutMs)),
-    historyLimit: Math.round(clampNumber(raw.historyLimit, 0, 30, IA_DEFAULTS.historyLimit)),
     perGroupCooldownMs: Math.round(clampNumber(raw.perGroupCooldownMs, 0, 600000, IA_DEFAULTS.perGroupCooldownMs)),
     triggerMode: triggerModeOf(raw),
     commands: commands.length ? commands : [...IA_DEFAULTS.commands],
     keywords,
+    // Antes solo existía "solo grupos configurados" (sí/no).
+    groupScope: pick(raw.groupScope, GROUP_SCOPES, raw.onlyConfiguredGroups === false ? 'all' : IA_DEFAULTS.groupScope),
+    privateScope: pick(raw.privateScope, PRIVATE_SCOPES, IA_DEFAULTS.privateScope),
+    privateTrigger: pick(raw.privateTrigger, ['all', 'same'], IA_DEFAULTS.privateTrigger),
+    ownerAssistant: raw.ownerAssistant !== false,
+    ownerTrigger: pick(raw.ownerTrigger, ['all', 'command'], IA_DEFAULTS.ownerTrigger),
+    // Antes la memoria se medía en pares pregunta-respuesta (historyLimit).
+    contextMessages: Math.round(clampNumber(raw.contextMessages ?? (raw.historyLimit !== undefined ? Number(raw.historyLimit) * 2 : undefined), 0, 200, IA_DEFAULTS.contextMessages)),
+    historyTools: raw.historyTools !== false,
+    maxToolSteps: Math.round(clampNumber(raw.maxToolSteps, 1, 8, IA_DEFAULTS.maxToolSteps)),
+    defaultTemplateId: /^[a-f0-9]{24}$/.test(String(raw.defaultTemplateId || '')) ? String(raw.defaultTemplateId) : '',
+    memoryResetAt: Math.max(0, Number(raw.memoryResetAt) || 0),
+    rules: normalizeIaRules(raw.rules),
     systemPrompt: text(raw.systemPrompt, 8000, IA_DEFAULTS.systemPrompt),
     fallbackText: text(raw.fallbackText, 1000, IA_DEFAULTS.fallbackText),
-    onlyConfiguredGroups: raw.onlyConfiguredGroups !== false,
     ignoreMedia: raw.ignoreMedia !== false,
-    ignoreOwnMessages: raw.ignoreOwnMessages !== false,
     replyQuoted: raw.replyQuoted !== undefined ? raw.replyQuoted === true : IA_DEFAULTS.replyQuoted,
     mentionSender: raw.mentionSender === true,
     showTyping: raw.showTyping !== undefined ? raw.showTyping === true : IA_DEFAULTS.showTyping,
@@ -180,10 +231,13 @@ export function normalizeIaConfig(raw = {}) {
 // Aplica los cambios que envía el panel. La clave solo cambia si se escribió
 // una nueva (se guarda cifrada) o si se pidió borrarla.
 export function mergeIaUpdate(current = {}, body = {}) {
-  // apiKeys/apiKeysSet nunca vienen del panel: las claves solo cambian con apiKey/clearApiKey.
+  // apiKeys/apiKeysSet nunca vienen del panel: las claves solo cambian con
+  // apiKey/clearApiKey. Las reglas por chat y el reinicio de memoria tienen
+  // sus propias rutas y no se pisan al guardar el formulario.
   // eslint-disable-next-line no-unused-vars
-  const { apiKey, clearApiKey, apiKeys, apiKeysSet, ...rest } = body;
-  const merged = normalizeIaConfig({ ...normalizeIaConfig(current), ...rest });
+  const { apiKey, clearApiKey, apiKeys, apiKeysSet, rules, memoryResetAt, ...rest } = body;
+  const base = normalizeIaConfig(current);
+  const merged = normalizeIaConfig({ ...base, ...rest, rules: base.rules, memoryResetAt: base.memoryResetAt });
   if (merged.provider === 'custom' && merged.baseUrl) merged.baseUrl = validateCustomBaseUrl(merged.baseUrl);
   if (clearApiKey === true) delete merged.apiKeys[merged.provider];
   const newKey = String(apiKey || '').trim();
@@ -252,12 +306,16 @@ function clientFor({ apiKey, baseUrl, model, timeoutMs, providerName }) {
   return client;
 }
 
-export async function askIa(ia, settings, messages, accountId) {
+// Una llamada al modelo. Con `tools` el modelo puede pedir herramientas
+// (tool calls) en lugar de responder directamente.
+export async function completeIa(ia, settings, { messages, tools, toolChoice, temperature }, accountId) {
   const endpoint = resolveIaEndpoint(ia, settings, accountId);
   const client = clientFor({ ...endpoint, model: ia.model, timeoutMs: ia.timeoutMs });
-  return client.chat({
+  return client.complete({
     messages,
-    temperature: ia.temperature,
+    tools,
+    toolChoice,
+    temperature: temperature ?? ia.temperature,
     maxTokens: ia.maxTokens,
     extraBody: endpoint.extraBody,
   });

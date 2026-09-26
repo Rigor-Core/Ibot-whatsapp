@@ -39,20 +39,17 @@ test('renderiza mensajes de entrada y salida con menciones', () => {
   );
 });
 
-test('ejecuta status independientemente del modo principal', async () => {
+function commandContext({ respuestas = true, ignoreOwnMessages = true } = {}) {
   const sent = [];
-  const config = normalizeAdminCommandsConfig({ enabled: true });
   const ctx = {
-    config: { modo: 'watch', respuestas: false, adminCommands: config },
+    config: { modo: 'watch', respuestas, ignoreOwnMessages, adminCommands: normalizeAdminCommandsConfig({ enabled: true }) },
     groupsById: new Map([['120363000@g.us', {
       nombre: 'Clientes',
       commandSettings: { enabled: true, prefix: '!' },
     }]]),
     runtimeStatus: 'connected',
-    socket: {
-      async sendMessage(groupId, content) {
-        sent.push({ groupId, content });
-      },
+    async send(groupId, content) {
+      sent.push({ groupId, content });
     },
     async getGroupMetadata() {
       return {
@@ -64,16 +61,38 @@ test('ejecuta status independientemente del modo principal', async () => {
     markBanned() {},
     unmarkBanned() {},
   };
-  const handled = await handleAdminCommand({
-    isGroup: true,
-    fromMe: false,
-    groupId: '120363000@g.us',
-    senderId: '584121234567@s.whatsapp.net',
-    text: '!status',
-    raw: {},
-  }, ctx);
+  return { ctx, sent };
+}
+
+const statusCommand = (fromMe = false) => ({
+  isGroup: true,
+  fromMe,
+  groupId: '120363000@g.us',
+  senderId: '584121234567@s.whatsapp.net',
+  text: '!status',
+  raw: {},
+});
+
+test('ejecuta status independientemente del modo principal', async () => {
+  const { ctx, sent } = commandContext();
+  const handled = await handleAdminCommand(statusCommand(), ctx);
   assert.equal(handled, true);
   assert.equal(sent.length, 1);
   assert.match(sent[0].content.text, /Estado del bot: conectado/);
   assert.match(sent[0].content.text, /Modo principal: watch/);
+});
+
+test('con respuestas apagadas los comandos no responden', async () => {
+  const { ctx, sent } = commandContext({ respuestas: false });
+  assert.equal(await handleAdminCommand(statusCommand(), ctx), false);
+  assert.equal(sent.length, 0);
+});
+
+test('mis propios comandos solo cuentan si no se ignoran mis mensajes', async () => {
+  let { ctx, sent } = commandContext();
+  assert.equal(await handleAdminCommand(statusCommand(true), ctx), false);
+  assert.equal(sent.length, 0);
+  ({ ctx, sent } = commandContext({ ignoreOwnMessages: false }));
+  assert.equal(await handleAdminCommand(statusCommand(true), ctx), true);
+  assert.equal(sent.length, 1);
 });
