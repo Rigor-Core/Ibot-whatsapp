@@ -71,6 +71,7 @@ export class ChatStore {
       id: message.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       groupId: message.groupId,
       groupName: message.groupName || this.groups.get(message.groupId)?.subject || message.groupId,
+      type: message.type || (String(message.groupId).endsWith('@g.us') ? 'group' : 'contact'),
       senderId: message.senderId || '',
       senderName: message.senderName || '',
       fromMe: !!message.fromMe,
@@ -87,6 +88,7 @@ export class ChatStore {
     ).catch(() => null);
 
     this.upsertGroup(entry.groupId, {
+      type: entry.type,
       subject: entry.groupName,
       lastMessagePreview: entry.preview,
       lastMessageAt: entry.ts,
@@ -96,13 +98,12 @@ export class ChatStore {
     return entry;
   }
 
-  recordOutgoing({ groupId, groupName, text }) {
-    return this.recordMessage({ groupId, groupName, senderId: 'bot', senderName: 'Bot', fromMe: true, text });
-  }
-
-  async listGroups({ q, limit = 500 } = {}) {
+  // Lista de chats (grupos y/o contactos) ordenada por el último mensaje.
+  async listGroups({ q, type, limit = 500 } = {}) {
     const query = String(q || '').trim();
     const filter = { accountId: this.accountId };
+    if (type === 'group') filter.groupId = { $regex: '@g\\.us$' };
+    if (type === 'contact') filter.groupId = { $not: /@g\.us$/ };
 
     if (query) {
       // Escape regex special characters for safe literal search

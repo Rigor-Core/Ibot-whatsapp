@@ -1,7 +1,7 @@
 // Panel de administración: usuarios, conexiones de WhatsApp, estadísticas y ajustes.
 (() => {
   const REFRESH_MS = 30000;
-  const SECTIONS = ['resumen', 'usuarios', 'conexiones', 'configuracion', 'cuenta'];
+  const SECTIONS = ['resumen', 'usuarios', 'conexiones', 'consola', 'configuracion', 'cuenta'];
   const STATUS = {
     connected: { label: 'Conectado', cls: 'good', color: 'var(--good)' },
     qr: { label: 'Esperando QR', cls: 'warning', color: 'var(--warning)' },
@@ -36,6 +36,8 @@
     assign: (accountId, username) => IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/assign`, { method: 'POST', body: JSON.stringify({ username }) }),
     control: (accountId, action) => IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/${action}`, { method: 'POST' }),
     myPassword: (body) => IbotApi.request('/api/admin/me/password', { method: 'PUT', body: JSON.stringify(body) }),
+    permissionsCatalog: () => IbotApi.request('/api/admin/permissions/catalog'),
+    setPermissions: (username, permissions) => IbotApi.request(`/api/admin/users/${encodeURIComponent(username)}/permissions`, { method: 'PUT', body: JSON.stringify({ permissions }) }),
   };
 
   const state = {
@@ -45,6 +47,8 @@
     section: 'resumen',
     loading: false,
     passwordTarget: null,
+    permissionsTarget: null,
+    permissionsCatalog: null,
     assignTarget: null,
   };
 
@@ -179,6 +183,8 @@
     $('#shell').classList.remove('nav-open');
     if (section === 'resumen' && state.stats) renderStats();
     if (section === 'configuracion') loadConfiguration();
+    if (section === 'consola') openConsole();
+    else closeConsoleStream();
   }
 
   window.addEventListener('hashchange', () => showSection(location.hash.slice(1)));
@@ -301,6 +307,7 @@
       if (account.phoneJid) items.push(`<button type="button" data-action="logout" data-account="${escapeHtml(account.accountId)}" data-name="${escapeHtml(user.username)}">Desvincular WhatsApp</button>`);
       items.push('<hr>');
     }
+    items.push(`<button type="button" data-action="permissions" data-username="${escapeHtml(user.username)}">Permisos</button>`);
     items.push(`<button type="button" data-action="password" data-username="${escapeHtml(user.username)}">Cambiar contraseña</button>`);
     items.push(user.disabled
       ? `<button type="button" data-action="enable" data-username="${escapeHtml(user.username)}">Reactivar usuario</button>`
@@ -478,6 +485,7 @@
       return;
     }
     if (action === 'assign') openAssign(account);
+    if (action === 'permissions') openPermissions(username);
   });
 
   // ─── Crear usuario ───────────────────────────────────────────────────
@@ -524,6 +532,51 @@
     }
   });
 
+  // ─── Permisos ────────────────────────────────────────────────────────
+  const PERMISSION_SECTIONS = { pages: 'Páginas', modes: 'Modos', features: 'Funciones' };
+
+  async function openPermissions(username) {
+    try {
+      state.permissionsCatalog ||= await api.permissionsCatalog();
+    } catch (error) {
+      toast(error.message);
+      return;
+    }
+    const user = state.overview.users.find((row) => row.username === username);
+    state.permissionsTarget = username;
+    $('#permModalTitle').textContent = `Permisos de ${username}`;
+    $('#permBody').innerHTML = Object.entries(PERMISSION_SECTIONS).map(([section, title]) => `
+      <div>
+        <div class="perm-section-title">${escapeHtml(title)}</div>
+        <div class="perm-options">
+          ${Object.entries(state.permissionsCatalog[section]).map(([key, label]) => `
+            <label class="perm-option">${escapeHtml(label)}
+              <span class="switch"><input type="checkbox" data-section="${section}" data-key="${key}" ${user.permissions[section][key] ? 'checked' : ''}><span></span></span>
+            </label>`).join('')}
+        </div>
+      </div>`).join('');
+    $('#permMaxGroups').value = user.permissions.limits.maxGroups;
+    openModal('permModal');
+  }
+
+  $('#permForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const permissions = { pages: {}, modes: {}, features: {}, limits: { maxGroups: Number($('#permMaxGroups').value || 0) } };
+    $('#permBody').querySelectorAll('input[data-section]').forEach((input) => {
+      permissions[input.dataset.section][input.dataset.key] = input.checked;
+    });
+    if (!Object.values(permissions.modes).some(Boolean)) {
+      $('#permFormError').textContent = 'Deja al menos un modo permitido.';
+      return;
+    }
+    const ok = await submitWithButton($('#permFormSave'), $('#permFormError'), () => api.setPermissions(state.permissionsTarget, permissions));
+    if (ok) {
+      closeModal($('#permModal'));
+      toast(`Permisos de ${state.permissionsTarget} actualizados`);
+      refresh();
+    }
+  });
+
   // ─── Asignar cuenta sin dueño ────────────────────────────────────────
   function openAssign(accountId) {
     const candidates = (state.overview?.users || []).filter((user) => !user.account);
@@ -545,6 +598,105 @@
       toast(`WhatsApp asignado a ${username}`);
       refresh();
     }
+  });
+
+  // ─── Consola ─────────────────────────────────────────────────────────
+  const MAX_LOG_LINES = 1000;
+  const consoleTime = new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  let consoleStream = null;
+  let consoleSearchTimer = null;
+
+  function consoleAccounts() {
+    const users = (state.overview?.users || []).filter((user) => user.account)
+      .map((user) => ({ id: user.account.accountId, label: `${user.username}${user.account.phoneJid ? ` · ${formatPhone(user.account.phoneJid)}` : ''}` }));
+    const orphans = (state.overview?.orphanAccounts || [])
+      .map((account) => ({ id: account.accountId, label: `Sin usuario · ${account.phoneName || account.label || account.accountId}` }));
+    return [...users, ...orphans];
+  }
+
+  function logLine(entry) {
+    const data = entry.data && Object.keys(entry.data).length ? ` <span class="data">${escapeHtml(JSON.stringify(entry.data))}</span>` : '';
+    return `<div class="log-line"><span class="time">${consoleTime.format(new Date(entry.ts))}</span>`
+      + `<span class="lvl ${escapeHtml(entry.level)}">${escapeHtml(entry.level)}</span>`
+      + `<span class="src">${escapeHtml(entry.source || '')}</span>`
+      + `<span class="msg">${escapeHtml(entry.message)}${data}</span></div>`;
+  }
+
+  function matchesConsoleFilter(entry) {
+    const level = $('#consoleLevel').value;
+    const query = $('#consoleSearch').value.trim().toLowerCase();
+    if (level && entry.level !== level) return false;
+    return !query || JSON.stringify(entry).toLowerCase().includes(query);
+  }
+
+  function closeConsoleStream() {
+    consoleStream?.close();
+    consoleStream = null;
+    $('#consoleLive').className = 'status';
+    $('#consoleLive').textContent = 'Sin conexión';
+  }
+
+  async function loadConsole() {
+    closeConsoleStream();
+    const accountId = $('#consoleAccount').value;
+    const box = $('#consoleBox');
+    if (!accountId) {
+      box.innerHTML = '<div class="empty">No hay cuentas de WhatsApp todavía.</div>';
+      return;
+    }
+    const params = new URLSearchParams({ limit: '500', level: $('#consoleLevel').value, q: $('#consoleSearch').value.trim() });
+    try {
+      const rows = await IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/logs?${params}`);
+      box.innerHTML = rows.length ? rows.reverse().map(logLine).join('') : '<div class="empty">Sin registros.</div>';
+      box.scrollTop = box.scrollHeight;
+    } catch (error) {
+      box.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    consoleStream = new EventSource(`/api/admin/accounts/${encodeURIComponent(accountId)}/logs/stream`, { withCredentials: true });
+    consoleStream.addEventListener('ready', () => {
+      $('#consoleLive').className = 'status good';
+      $('#consoleLive').textContent = 'En vivo';
+    });
+    consoleStream.addEventListener('log', (event) => {
+      const entry = JSON.parse(event.data);
+      if (!matchesConsoleFilter(entry)) return;
+      const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      box.querySelector('.empty')?.remove();
+      box.insertAdjacentHTML('beforeend', logLine(entry));
+      while (box.children.length > MAX_LOG_LINES) box.firstElementChild.remove();
+      if (atBottom) box.scrollTop = box.scrollHeight;
+    });
+    consoleStream.onerror = () => {
+      $('#consoleLive').className = 'status warning';
+      $('#consoleLive').textContent = 'Reconectando…';
+    };
+  }
+
+  function openConsole() {
+    const select = $('#consoleAccount');
+    const previous = select.value;
+    const accounts = consoleAccounts();
+    select.innerHTML = accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.label)}</option>`).join('');
+    if (accounts.some((account) => account.id === previous)) select.value = previous;
+    loadConsole();
+  }
+
+  $('#consoleAccount').addEventListener('change', loadConsole);
+  $('#consoleLevel').addEventListener('change', loadConsole);
+  $('#consoleSearch').addEventListener('input', () => {
+    clearTimeout(consoleSearchTimer);
+    consoleSearchTimer = setTimeout(loadConsole, 300);
+  });
+  $('#consoleClear').addEventListener('click', async () => {
+    const accountId = $('#consoleAccount').value;
+    if (!accountId) return;
+    const ok = await confirmAction({ title: 'Limpiar consola', text: 'Se borrará el registro de esta cuenta.', accept: 'Limpiar' });
+    if (!ok) return;
+    runAction('Consola limpiada', async () => {
+      await IbotApi.request(`/api/admin/accounts/${encodeURIComponent(accountId)}/logs`, { method: 'DELETE' });
+      await loadConsole();
+    });
   });
 
   // ─── Configuración y sistema ─────────────────────────────────────────

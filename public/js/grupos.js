@@ -108,6 +108,8 @@ async function loadGroups() {
 
 /* ---- Render de la tabla ---- */
 function renderGroups() {
+  // Sin permiso de gestionar grupos solo se ven, sin botones de acción.
+  const canManage = userPermissions()?.features.manageGroups !== false;
   categoriesEl.innerHTML = '';
 
   /* Cabecera global */
@@ -201,7 +203,7 @@ function renderGroups() {
       btnToggle.textContent = g.responder ? 'Desactivar' : 'Activar';
       btnToggle.setAttribute('aria-pressed', g.responder ? 'true' : 'false');
       btnToggle.addEventListener('click', () => toggleResponder(g.groupId));
-      respCol.appendChild(btnToggle);
+      if (canManage) respCol.appendChild(btnToggle);
 
       /* Col: acciones */
       const actionsCol = document.createElement('div');
@@ -251,6 +253,7 @@ function renderGroups() {
       btnDel.addEventListener('click', () => deleteGroupConfirm(g.groupId));
       actionsCol.appendChild(btnDel);
 
+      if (!canManage) actionsCol.replaceChildren();
       row.appendChild(nameCol);
       row.appendChild(tipoCol);
       row.appendChild(cntCol);
@@ -264,7 +267,7 @@ function renderGroups() {
     addBar.className = 'add-row-bar';
     addBar.textContent = `+ Añadir en "${cat}"`;
     addBar.addEventListener('click', () => openNewForCategory(cat));
-    rightArea.appendChild(addBar);
+    if (canManage) rightArea.appendChild(addBar);
 
     catCard.appendChild(leftCol);
     catCard.appendChild(rightArea);
@@ -482,6 +485,7 @@ document.addEventListener('keydown', (e) => {
 /* ---- Bind de eventos ---- */
 function bind() {
   bindPanelLogout();
+  document.getElementById('themeToggleBtn')?.addEventListener('click', () => window.IbotTheme?.toggle());
 
   document.getElementById('btn-new').addEventListener('click', () => openNewForCategory('otros'));
   document.getElementById('btn-refresh').addEventListener('click', () => loadGroups());

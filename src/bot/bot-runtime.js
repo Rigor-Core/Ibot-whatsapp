@@ -28,6 +28,16 @@ import {
   renderGroupEventMessage,
 } from '../services/admin-command-service.js';
 
+function isGroupChat(jid) {
+  return String(jid || '').endsWith('@g.us');
+}
+
+// Grupos y chats privados (no estados, difusiones ni canales).
+function isTrackableChat(jid) {
+  const value = String(jid || '');
+  return value.endsWith('@g.us') || value.endsWith('@s.whatsapp.net') || value.endsWith('@lid');
+}
+
 export const BOT_MODES = Object.freeze(['repartidor', 'normal', 'watch', 'ia']);
 export const DEFAULT_MODE = 'repartidor';
 
@@ -456,12 +466,10 @@ export class BotRuntime {
         for (const m of messages) {
           if (!m?.message) continue;
           const extracted = extractMessage(m);
-          if (extracted.senderId && extracted.senderName) {
+          if (extracted.senderId && extracted.senderName && !extracted.fromMe) {
             this.saveContact(extracted.senderId, extracted.senderName);
           }
-          if (this.config?.modo === 'watch' && extracted.isGroup) {
-            this.recordChatMessage(extracted);
-          }
+          if (isTrackableChat(extracted.groupId)) this.recordChatMessage(extracted);
         }
       });
       await this.updateStatus(isReconnecting ? 'reconnecting' : 'connecting');
@@ -643,14 +651,20 @@ export class BotRuntime {
         this.dispatchMode(mode, extracted, ctx);
       }
 
-      if (extracted.senderId && extracted.senderName) {
-        this.saveContact(extracted.senderId, extracted.senderName);
-      }
-      if (extracted.isGroup && mode === 'watch') this.recordChatMessage(extracted);
-      if (extracted.isGroup && (live || mode === 'watch')) {
-        this.refreshGroupMetadata(extracted.groupId).catch(() => null);
-      }
+      // Chats y contactos se registran en cualquier modo; en modo repartidor el
+      // registro se aplaza para que nunca compita con la respuesta.
+      if (mode === 'repartidor') setImmediate(() => this.trackMessage(extracted));
+      else this.trackMessage(extracted);
     }
+  }
+
+  trackMessage(extracted) {
+    if (extracted.senderId && extracted.senderName && !extracted.fromMe) {
+      this.saveContact(extracted.senderId, extracted.senderName);
+    }
+    if (!isTrackableChat(extracted.groupId)) return;
+    this.recordChatMessage(extracted);
+    if (extracted.isGroup) this.refreshGroupMetadata(extracted.groupId).catch(() => null);
   }
 
   // Solo se procesan mensajes recibidos con la sesión abierta y de menos de 15 s.
@@ -757,17 +771,23 @@ export class BotRuntime {
     }
   }
 
+  // Nombre visible de un chat: el del grupo configurado o de WhatsApp, o el del
+  // contacto (agenda, nombre de perfil o número).
+  chatName(chatId, extracted) {
+    const cached = this.chatStore.groups.get(chatId);
+    if (isGroupChat(chatId)) return this.groupsById.get(chatId)?.nombre || cached?.subject || chatId;
+    const contact = this.contactsMap.get(normalizeContactJid(chatId));
+    const incomingName = extracted && !extracted.fromMe ? extracted.senderName : '';
+    return contact?.name || incomingName || cached?.subject || `+${chatId.split('@')[0]}`;
+  }
+
   recordChatMessage(extracted) {
     this.directorySnapshot = null;
-    const cfg = this.groupsById.get(extracted.groupId);
-    const cached = this.chatStore.groups.get(extracted.groupId);
-    if (extracted.senderId && extracted.senderName) {
-      this.saveContact(extracted.senderId, extracted.senderName);
-    }
     this.chatStore.recordMessage({
       id: extracted.id,
       groupId: extracted.groupId,
-      groupName: cfg?.nombre || cached?.subject || (extracted.isGroup ? extracted.groupId : 'Chat Privado / Watch'),
+      type: extracted.isGroup ? 'group' : 'contact',
+      groupName: this.chatName(extracted.groupId, extracted),
       senderId: extracted.senderId,
       senderName: extracted.senderName,
       fromMe: extracted.fromMe,

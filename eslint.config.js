@@ -11,6 +11,7 @@ export default [
         process: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        setImmediate: 'readonly',
         setInterval: 'readonly',
         clearInterval: 'readonly',
         document: 'readonly',
@@ -42,8 +43,14 @@ export default [
         loadUserBot: 'readonly',
         bindPanelLogout: 'readonly',
         subscribeLive: 'readonly',
+        userPermissions: 'readonly',
         create: 'readonly',
-        Notification: 'readonly'
+        Notification: 'readonly',
+        MutationObserver: 'readonly',
+        CSS: 'readonly',
+        CustomEvent: 'readonly',
+        localStorage: 'readonly',
+        ScheduleDialog: 'readonly'
       }
     },
     rules: {

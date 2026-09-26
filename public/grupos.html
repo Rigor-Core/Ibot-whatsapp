@@ -5,6 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=980" />
   <title>Ibot — Grupos</title>
+  <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/styles.css" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#030406" />
@@ -611,6 +612,7 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="/css/groups-theme.css" />
 </head>
 
 <body>
@@ -629,7 +631,8 @@
         <a href="/contactos.html" title="Directorio / Contactos">📇</a>
         <a href="/comandos.html" title="Comandos">⌘</a>
         <a href="/configuracion.html" title="Configuración">⚙️</a>
-        <a href="/logs.html" title="Logs">📜</a>
+        <a href="/chats.html" title="Chats">💬</a>
+        <button id="themeToggleBtn" class="linklike" type="button" title="Cambiar tema">🌓</button>
         <button id="panelLogoutBtn" class="linklike" type="button" title="Salir"
           style="filter: drop-shadow(0 0 2px rgba(255,23,68,0.85));">🚪</button>
       </nav>
@@ -643,9 +646,9 @@
         <div class="header-row">
           <div class="title">Grupos configurables</div>
           <div class="toolbar-btns">
-            <button id="btn-toggle-ind" class="btn util">Independientes</button>
+            <button id="btn-toggle-ind" class="btn util" data-feature="manageGroups">Independientes</button>
             <button id="btn-toggle-nonind" class="btn util">Respuestas: OFF</button>
-            <button id="btn-new" class="btn">➕ Nuevo</button>
+            <button id="btn-new" class="btn" data-feature="manageGroups">➕ Nuevo</button>
             <button id="btn-refresh" class="btn util">↻</button>
           </div>
         </div>

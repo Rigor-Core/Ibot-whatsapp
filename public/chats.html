@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ibot — Chats</title>
+  <meta name="theme-color" content="#f5f6f8">
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <style>
+    .chat-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: calc(100vh - 140px); min-height: 480px; padding: 0; overflow: hidden; }
+    .chat-list { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
+    .chat-list-head { padding: 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--border); }
+    .chat-list-head .segmented { width: 100%; }
+    .chat-list-head .segmented button { flex: 1; }
+    .chat-items { overflow-y: auto; flex: 1; }
+    .chat-item { display: flex; gap: 12px; align-items: center; padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; text-align: left; }
+    .chat-item:hover { background: var(--surface-2); }
+    .chat-item.active { background: var(--accent-soft); }
+    .chat-item .main { flex: 1; min-width: 0; }
+    .chat-item .row { display: flex; gap: 8px; align-items: baseline; }
+    .chat-item .name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-item .time { font-size: 11.5px; color: var(--muted); flex: none; }
+    .chat-item .preview { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .chat-view-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .chat-view-head .main { flex: 1; min-width: 0; }
+    .chat-view-head .title { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-back { display: none; }
+    .messages { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); }
+    .day-sep { align-self: center; font-size: 11.5px; font-weight: 700; color: var(--muted); background: var(--surface); padding: 3px 10px; border-radius: 999px; margin: 8px 0; }
+    .bubble { max-width: min(78%, 560px); padding: 8px 12px 6px; border-radius: 14px; background: var(--bubble-in); box-shadow: var(--shadow); align-self: flex-start; word-wrap: break-word; white-space: pre-wrap; }
+    .bubble.out { align-self: flex-end; background: var(--bubble-out); }
+    .bubble .who { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+    .bubble .media { font-style: italic; color: var(--muted); }
+    .bubble .at { font-size: 10.5px; color: var(--muted); text-align: right; margin-top: 2px; }
+    .composer { display: flex; gap: 10px; padding: 12px; border-top: 1px solid var(--border); align-items: flex-end; }
+    .composer textarea { flex: 1; min-height: 42px; max-height: 140px; resize: none; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); outline: none; line-height: 1.4; }
+    .composer textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .chat-placeholder { flex: 1; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 24px; }
+    @media (max-width: 1024px) { .chat-layout { grid-template-columns: 290px minmax(0, 1fr); } }
+    @media (max-width: 640px) {
+      .chat-layout { grid-template-columns: minmax(0, 1fr); height: calc(100vh - 190px - env(safe-area-inset-bottom)); border-radius: 14px; }
+      .chat-list { border-right: 0; }
+      .chat-view { display: none; }
+      .chat-layout.viewing .chat-list { display: none; }
+      .chat-layout.viewing .chat-view { display: flex; }
+      .chat-back { display: inline-flex; }
+      .bubble { max-width: 88%; }
+    }
+  </style>
+</head>
+<body class="app" data-page="chats">
+  <div class="app-shell">
+    <nav class="app-nav" id="appNav" aria-label="Navegación principal"></nav>
+    <main class="app-main">
+      <div class="app-content">
+        <header class="page-head">
+          <div>
+            <h1 class="page-title">Chats</h1>
+            <div class="page-sub">Grupos y contactos que tu WhatsApp ha visto, en tiempo real</div>
+          </div>
+        </header>
+
+        <section class="card chat-layout" id="chatLayout">
+          <aside class="chat-list">
+            <div class="chat-list-head">
+              <input type="search" id="chatSearch" placeholder="Buscar chat…" aria-label="Buscar chat">
+              <div class="segmented" id="chatFilter" role="group" aria-label="Filtrar chats">
+                <button type="button" data-type="" class="active">Todos</button>
+                <button type="button" data-type="group">Grupos</button>
+                <button type="button" data-type="contact">Contactos</button>
+              </div>
+            </div>
+            <div class="chat-items" id="chatItems"><div class="empty">Cargando chats…</div></div>
+          </aside>
+
+          <div class="chat-view" id="chatView">
+            <div class="chat-placeholder" id="chatPlaceholder">
+              <div><strong>Elige un chat</strong><br>Los mensajes nuevos aparecerán aquí al instante.</div>
+            </div>
+            <div class="chat-view-head" id="chatHead" hidden>
+              <button class="btn ghost icon chat-back" type="button" id="chatBack" aria-label="Volver a la lista">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+              </button>
+              <div class="avatar" id="chatAvatar"></div>
+              <div class="main">
+                <div class="title" id="chatTitle"></div>
+                <div class="hint" id="chatSub"></div>
+              </div>
+              <button class="btn sm" type="button" id="chatSchedule" data-feature="scheduleMessages">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                <span>Programar</span>
+              </button>
+            </div>
+            <div class="messages" id="messages" hidden></div>
+            <form class="composer" id="composer" data-feature="sendMessages" hidden>
+              <textarea id="composerText" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea>
+              <button class="btn primary icon" type="submit" id="composerSend" aria-label="Enviar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              </button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/schedule.js"></script>
+  <script src="/js/chats.js"></script>
+</body>
+</html>

@@ -32,9 +32,9 @@
     statusEl.textContent = reason || (active
       ? '✅ Este dispositivo recibe notificaciones. Elige cuáles quieres:'
       : 'Este dispositivo no recibe notificaciones todavía.');
-    toggleBtn.style.display = reason ? 'none' : '';
+    toggleBtn.hidden = !!reason;
     toggleBtn.textContent = active ? 'Desactivar en este dispositivo' : 'Activar en este dispositivo';
-    testBtn.style.display = active ? '' : 'none';
+    testBtn.hidden = !active;
 
     prefsEl.innerHTML = '';
     if (!info) return;

@@ -59,8 +59,28 @@ async function safeCreateIndex(collection, indexSpec, options = {}) {
   }
 }
 
+// Colecciones con datos de cada cuenta: ningún índice único puede ignorar accountId,
+// o una cuenta bloquearía a otra (por ejemplo, el mismo grupo en dos WhatsApp).
+const PER_ACCOUNT_COLLECTIONS = [
+  'groups', 'chatGroups', 'chatMessages', 'contacts', 'counters',
+  'whatsappSessions', 'statsDaily', 'scheduledMessages', 'qrHistory',
+];
+
+async function dropLegacyGlobalUniqueIndexes(c) {
+  for (const name of PER_ACCOUNT_COLLECTIONS) {
+    const collection = c[name];
+    const indexes = await collection.indexes().catch(() => []);
+    for (const index of indexes) {
+      if (!index.unique || index.name === '_id_' || 'accountId' in index.key) continue;
+      await collection.dropIndex(index.name);
+      console.warn(`[mongo] Índice único heredado eliminado: ${collection.collectionName}.${index.name} (no separaba las cuentas)`);
+    }
+  }
+}
+
 export async function ensureIndexes(database = db) {
   const c = getCollections(database);
+  await dropLegacyGlobalUniqueIndexes(c);
   await Promise.all([
     safeCreateIndex(c.accounts, { accountId: 1 }, { unique: true }),
     safeCreateIndex(c.configs, { accountId: 1 }, { unique: true }),

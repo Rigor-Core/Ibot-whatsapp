@@ -2,6 +2,9 @@ let current = null;
 let iaProviders = [];
 let iaDefaults = {};
 
+// La tarjeta de IA no existe si el administrador no permite configurarla.
+const hasIa = () => !!document.getElementById('iaProvider');
+
 // Muestra el campo que corresponde al disparador elegido.
 function syncIaTriggerFields() {
   const mode = $('#iaTriggerMode').value;
@@ -30,15 +33,17 @@ function syncIaProviderFields() {
   $('#iaProviderInfo').textContent = `${provider.description} ${keyInfo}`;
   $('#iaApiKey').placeholder = keySet ? '•••••••• (Dejar vacío para conservar)' : 'Pega aquí tu API key';
   $('#iaClearApiKey').checked = false;
-  $('#iaClearApiKey').closest('.span-4').style.display = keySet ? '' : 'none';
+  $('#iaClearApiKey').closest('.col-4').hidden = !keySet;
 }
 
 async function load() {
-  const [config, catalog] = await Promise.all([IbotApi.config(), IbotApi.iaProviders()]);
+  const [config, catalog] = await Promise.all([IbotApi.config(), hasIa() ? IbotApi.iaProviders() : null]);
   current = config;
-  iaDefaults = catalog.defaults;
-  iaProviders = catalog.providers;
-  $('#iaProvider').innerHTML = iaProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name)}</option>`).join('');
+  if (catalog) {
+    iaDefaults = catalog.defaults;
+    iaProviders = catalog.providers;
+    $('#iaProvider').innerHTML = iaProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name)}</option>`).join('');
+  }
   fillConfig();
 
   // Populate groups dropdown for connection notifications
@@ -54,17 +59,7 @@ async function load() {
   await loadGroupOrder(userGroups);
 }
 
-// Refleja en el formulario la configuración actual sin volver a pedir nada al servidor.
-function fillConfig() {
-  $('#modo').value = current.modo || 'repartidor';
-  
-  const respEl = $('#respuestas');
-  if (respEl) respEl.checked = !!current.respuestas;
-
-  $('#globalLimit').value = current.repartidor?.globalLimit ?? 1;
-  $('#filterEnabled').checked = current.repartidor?.filterEnabled !== false;
-  $('#timezone').value = current.timezone || 'America/Hermosillo';
-  
+function fillIa() {
   const ia = { ...iaDefaults, ...(current.ia || {}) };
   $('#iaProvider').value = iaProviders.some((provider) => provider.id === ia.provider) ? ia.provider : iaProviders[0]?.id;
   $('#iaModel').value = ia.model || '';
@@ -90,6 +85,20 @@ function fillConfig() {
   $('#iaShowTyping').checked = ia.showTyping;
   $('#iaIncludeSender').checked = ia.includeSenderName;
   syncIaProviderFields();
+}
+
+// Refleja en el formulario la configuración actual sin volver a pedir nada al servidor.
+function fillConfig() {
+  $('#modo').value = current.modo || 'repartidor';
+  
+  const respEl = $('#respuestas');
+  if (respEl) respEl.checked = !!current.respuestas;
+
+  $('#globalLimit').value = current.repartidor?.globalLimit ?? 1;
+  $('#filterEnabled').checked = current.repartidor?.filterEnabled !== false;
+  $('#timezone').value = current.timezone || 'America/Hermosillo';
+  
+  if (hasIa()) fillIa();
 
   const connNotify = current.connectionNotification || {};
   $('#connNotifyEnabled').checked = !!connNotify.enabled;
@@ -97,7 +106,7 @@ function fillConfig() {
   $('#connNotifyMessage').value = connNotify.message || '';
 }
 
-function payload() {
+function iaPayload() {
   const provider = $('#iaProvider').value;
   const ia = {
     provider,
@@ -125,7 +134,10 @@ function payload() {
   const apiKey = $('#iaApiKey').value.trim();
   if (apiKey) ia.apiKey = apiKey;
   if ($('#iaClearApiKey').checked) ia.clearApiKey = true;
+  return ia;
+}
 
+function payload() {
   const respEl = $('#respuestas');
   const respuestasVal = respEl ? respEl.checked : (current ? !!current.respuestas : false);
 
@@ -142,7 +154,7 @@ function payload() {
       globalLimit: Number($('#globalLimit').value || 0),
       filterEnabled: $('#filterEnabled').checked,
     },
-    ia,
+    ...(hasIa() ? { ia: iaPayload() } : {}),
     connectionNotification,
     timezone: $('#timezone').value,
   };
@@ -187,6 +199,8 @@ $('#iaResetMemory').onclick = async () => {
     toast(e.message);
   }
 };
+
+$('#saveZone').onclick = save;
 
 const saveConnNotify = $('#saveConnNotify');
 if (saveConnNotify) saveConnNotify.onclick = save;
@@ -522,5 +536,4 @@ if (resetOrderBtn) {
   });
 }
 
-bindPanelLogout();
 loadUserBot().then(load).catch((e) => toast(e.message));

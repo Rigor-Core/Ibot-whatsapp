@@ -35,6 +35,10 @@
       </a>
 
       <div class="nav-label">Sistema</div>
+      <a class="nav-item" href="#consola" data-section="consola">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
+        Consola
+      </a>
       <a class="nav-item" href="#configuracion" data-section="configuracion">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Configuración
@@ -217,6 +221,24 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <!-- ─── Consola ─── -->
+      <section class="section" id="section-consola" data-title="Consola" data-subtitle="Registro en vivo de lo que hace cada WhatsApp">
+        <div class="toolbar">
+          <select id="consoleAccount" aria-label="Cuenta" style="width:auto;min-width:200px"></select>
+          <select id="consoleLevel" aria-label="Nivel" style="width:auto">
+            <option value="">Todos los niveles</option>
+            <option value="info">Info</option>
+            <option value="warn">Advertencias</option>
+            <option value="error">Errores</option>
+          </select>
+          <input type="search" class="search" id="consoleSearch" placeholder="Buscar en la consola…" aria-label="Buscar en la consola">
+          <span class="status" id="consoleLive">Sin conexión</span>
+          <div style="flex:1"></div>
+          <button class="btn danger" type="button" id="consoleClear">Limpiar</button>
+        </div>
+        <div class="card console-box" id="consoleBox"><div class="empty">Elige una cuenta.</div></div>
       </section>
 
       <!-- ─── Configuración ─── -->
@@ -404,6 +426,23 @@
     </form>
   </div>
 
+  <!-- Modal: permisos de un usuario -->
+  <div class="modal" id="permModal" role="dialog" aria-modal="true" aria-labelledby="permModalTitle">
+    <form class="modal-card" id="permForm" style="max-width: 620px">
+      <div class="modal-title" id="permModalTitle">Permisos</div>
+      <div class="modal-sub">Lo que desactives no le aparecerá al usuario y el servidor lo bloqueará.</div>
+      <div id="permBody" class="perm-grid"></div>
+      <label class="field" style="margin-top: 14px">Límite de grupos (0 = sin límite)
+        <input type="number" id="permMaxGroups" min="0" step="1">
+      </label>
+      <div class="form-error" id="permFormError"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" data-close-modal>Cancelar</button>
+        <button class="btn primary" type="submit" id="permFormSave">Guardar permisos</button>
+      </div>
+    </form>
+  </div>
+
   <!-- Modal: confirmación -->
   <div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="modal-card">
@@ -420,5 +459,6 @@
   <script src="/js/api.js"></script>
   <script src="/js/admin-charts.js"></script>
   <script src="/js/admin.js"></script>
+  <script src="/js/password-toggle.js"></script>
 </body>
 </html>

@@ -98,6 +98,8 @@ app.get('/register.html', (req, res) => res.sendFile(path.join(publicDir, 'regis
 
 app.use(requirePanelAuth({ collections }));
 app.use(routePagesByRole);
+// La antigua página de logs ahora es Chats.
+app.get(['/logs', '/logs.html'], (req, res) => res.redirect(301, '/chats.html'));
 app.use(express.static(publicDir, { extensions: ['html'] }));
 app.use(createAdminRouter({ collections, registry, scheduler }));
 app.use(createMainRouter({ collections, registry, scheduler, push }));

@@ -1,0 +1,54 @@
+/* Tema claro para Grupos. Solo actúa con data-theme="light": el diseño oscuro
+   original de styles.css y grupos.html queda exactamente igual. */
+:root[data-theme="light"] {
+  --bg: #f5f6f8;
+  --panel: rgba(255, 255, 255, 0.92);
+  --panel-solid: #ffffff;
+  --panel-2: #f8f9fb;
+  --accent: #0284c7;
+  --accent-glow: rgba(2, 132, 199, 0.2);
+  --bg-btn: #eef1f5;
+  --muted: #5b6275;
+  --success: #15803d;
+  --danger: #dc2626;
+  --glass: rgba(15, 23, 42, 0.03);
+  --border-soft: rgba(15, 23, 42, 0.1);
+  color-scheme: light;
+}
+
+:root[data-theme="light"] body { background: #f5f6f8; color: #1f2430; }
+:root[data-theme="light"] .topnav,
+:root[data-theme="light"] header { background: rgba(255, 255, 255, 0.9); border-color: rgba(15, 23, 42, 0.08); }
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .modal-card { background: #fff; border-color: rgba(15, 23, 42, 0.1); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06); }
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea { background: #fff; color: #1f2430; border-color: rgba(15, 23, 42, 0.16); }
+:root[data-theme="light"] .btn { color: #1f2430; }
+
+/* Colores fijos en línea (grupos.html, grupos.js y components.js). */
+:root[data-theme="light"] [style*="color: #fff"],
+:root[data-theme="light"] [style*="color:#fff"],
+:root[data-theme="light"] [style*="color: #f3f4f6"],
+:root[data-theme="light"] .col-name .title,
+:root[data-theme="light"] h1, :root[data-theme="light"] h2, :root[data-theme="light"] h3,
+:root[data-theme="light"] .title { color: #1f2430 !important; }
+:root[data-theme="light"] [style*="color: #39ff6a"],
+:root[data-theme="light"] [style*="color:#39ff6a"] { color: #15803d !important; }
+:root[data-theme="light"] [style*="color: #ffb400"] { color: #b45309 !important; }
+:root[data-theme="light"] [style*="color: #03dac6"] { color: #0f766e !important; }
+:root[data-theme="light"] [style*="c889ff"] { color: #7e22ce !important; }
+:root[data-theme="light"] [style*="background: rgba(0,0,0,0.2)"],
+:root[data-theme="light"] [style*="background:rgba(0,0,0,.2)"],
+:root[data-theme="light"] [style*="background: rgba(0,0,0,0.25)"],
+:root[data-theme="light"] [style*="background: rgba(255, 255, 255, 0.0"] { background: #f3f5f8 !important; }
+:root[data-theme="light"] [style*="rgba(255, 255, 255, 0.1)"],
+:root[data-theme="light"] [style*="rgba(255,255,255,0.06)"] { border-color: rgba(15, 23, 42, 0.1) !important; }
+:root[data-theme="light"] #modal { background: rgba(15, 23, 42, 0.35); }
+:root[data-theme="light"] .title { background: none; -webkit-text-fill-color: currentColor; }
+:root[data-theme="light"] .brand h1 { -webkit-text-fill-color: currentColor; background: none; }
+:root[data-theme="light"] nav.top-links a,
+:root[data-theme="light"] .top-links button.linklike { color: #1f2430; }
+:root[data-theme="light"] .group-row-table.active .col-name .title { color: #15803d !important; text-shadow: none; }
+:root[data-theme="light"] [class*="badge"],
+:root[data-theme="light"] .group-row-table * { text-shadow: none !important; }

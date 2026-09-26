@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { ObjectId } from 'mongodb';
 import { panelSecret } from '../core/secrets.js';
+import { PAGE_PERMISSIONS, normalizePermissions } from '../services/permissions.js';
 import { assertUserCapacity, getSystemSettings } from '../services/settings-service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -17,7 +18,7 @@ export const ROLE_ACCOUNT = 'account';
 // Páginas del panel de usuario y del panel de administración.
 const USER_PAGES = new Set([
   '/', '/index', '/index.html', '/grupos', '/grupos.html', '/contactos', '/contactos.html',
-  '/comandos', '/comandos.html', '/configuracion', '/configuracion.html', '/logs', '/logs.html',
+  '/comandos', '/comandos.html', '/configuracion', '/configuracion.html', '/chats', '/chats.html',
 ]);
 const ADMIN_PAGES = new Set(['/admin', '/admin.html']);
 
@@ -280,7 +281,12 @@ export function requirePanelAuth({ collections }) {
       if (!enabled) return next();
       const user = await sessionUser(collections, req);
       if (user) {
-        req.panelUser = { uid: String(user._id), username: user.username, role: user.role || ROLE_ACCOUNT };
+        req.panelUser = {
+          uid: String(user._id),
+          username: user.username,
+          role: user.role || ROLE_ACCOUNT,
+          permissions: normalizePermissions(user.permissions),
+        };
         // CSRF validation for all state-changing requests
         const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
         if (mutatingMethods.includes(req.method) && req.path.startsWith('/api/')) {
@@ -310,6 +316,9 @@ export function routePagesByRole(req, res, next) {
   if (!role || req.method !== 'GET' || req.path.startsWith('/api/')) return next();
   if (role === ROLE_OWNER && USER_PAGES.has(req.path)) return res.redirect('/admin.html');
   if (role !== ROLE_OWNER && ADMIN_PAGES.has(req.path)) return res.redirect('/');
+  // Páginas que el administrador no permite a este usuario.
+  const page = PAGE_PERMISSIONS[req.path];
+  if (role !== ROLE_OWNER && page && !req.panelUser.permissions?.pages[page]) return res.redirect('/');
   return next();
 }
 

@@ -9,6 +9,7 @@ import {
   validatePassword,
   verifySessionCookie,
 } from '../src/routes/auth.middleware.js';
+import { deniedApiPermission, deniedConfigChange, normalizePermissions } from '../src/services/permissions.js';
 
 test('exige contraseñas robustas para nuevas cuentas', () => {
   assert.match(validatePassword('corta'), /12 caracteres/);
@@ -30,10 +31,10 @@ function fakeResponse() {
 }
 
 test('cada rol solo accede a su propio panel', () => {
-  const run = (role, path, method = 'GET') => {
+  const run = (role, path, method = 'GET', permissions = normalizePermissions()) => {
     const res = fakeResponse();
     let passed = false;
-    routePagesByRole({ panelUser: role ? { role } : undefined, path, method }, res, () => { passed = true; });
+    routePagesByRole({ panelUser: role ? { role, permissions } : undefined, path, method }, res, () => { passed = true; });
     return { passed, redirectedTo: res.redirectedTo };
   };
   assert.deepEqual(run('owner', '/grupos.html'), { passed: false, redirectedTo: '/admin.html' });
@@ -42,6 +43,9 @@ test('cada rol solo accede a su propio panel', () => {
   assert.deepEqual(run('account', '/admin.html'), { passed: false, redirectedTo: '/' });
   assert.deepEqual(run('account', '/grupos.html'), { passed: true, redirectedTo: null });
   assert.deepEqual(run('account', '/api/admin/overview'), { passed: true, redirectedTo: null });
+  const noContacts = normalizePermissions({ pages: { contactos: false } });
+  assert.deepEqual(run('account', '/contactos.html', 'GET', noContacts), { passed: false, redirectedTo: '/' });
+  assert.deepEqual(run('account', '/grupos.html', 'GET', noContacts), { passed: true, redirectedTo: null });
   assert.equal(homePathFor('owner'), '/admin.html');
   assert.equal(homePathFor('account'), '/');
 });
@@ -66,4 +70,20 @@ test('la cookie de sesión incluye la versión de sesión para poder invalidarla
   assert.equal(session.sv, 3);
   const [payload, signature] = createSessionCookie(user).split('.');
   assert.equal(verifySessionCookie(`${payload}x.${signature}`), null);
+});
+
+test('la API respeta páginas, funciones y modos prohibidos', () => {
+  const permissions = normalizePermissions({
+    pages: { chats: false },
+    features: { manageGroups: false, iaSettings: false },
+    modes: { ia: false },
+  });
+  assert.match(deniedApiPermission(permissions, 'GET', '/api/bot/chats/groups'), /Chats/);
+  assert.equal(deniedApiPermission(permissions, 'GET', '/api/bot/grupos'), null);
+  assert.match(deniedApiPermission(permissions, 'POST', '/api/bot/grupos'), /grupos/);
+  assert.match(deniedConfigChange(permissions, { modo: 'ia' }), /IA/);
+  assert.equal(deniedConfigChange(permissions, { modo: 'repartidor' }), null);
+  assert.match(deniedConfigChange(permissions, { ia: {} }), /IA/);
+  const none = normalizePermissions({ modes: { repartidor: false, normal: false, watch: false, ia: false } });
+  assert.equal(none.modes.repartidor, true);
 });

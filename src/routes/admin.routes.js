@@ -17,6 +17,7 @@ import {
   systemInfo,
 } from '../services/admin-service.js';
 import { getSystemSettings, updateSystemSettings } from '../services/settings-service.js';
+import { PERMISSION_CATALOG, allowedModes, normalizePermissions } from '../services/permissions.js';
 
 const ACCOUNT_ACTIONS = new Set(['start', 'stop', 'logout']);
 
@@ -120,6 +121,30 @@ export function createAdminRouter({ collections, registry, scheduler }) {
     res.json({ ok: true, disabled });
   }));
 
+  // Permisos: páginas, modos, funciones y límites de cada usuario.
+  router.get('/api/admin/permissions/catalog', handle(async (req, res) => {
+    res.json(PERMISSION_CATALOG);
+  }));
+
+  router.put('/api/admin/users/:username/permissions', handle(async (req, res) => {
+    const user = await findAccountUser(collections, req.params.username);
+    const permissions = normalizePermissions(req.body?.permissions);
+    await collections.users.updateOne({ _id: user._id }, { $set: { permissions, updatedAt: new Date() } });
+    // Si su modo actual quedó prohibido, pasa al primer modo permitido.
+    const account = await collections.accounts.findOne({ userId: String(user._id) });
+    if (account) {
+      const config = await collections.configs.findOne({ accountId: account.accountId }, { projection: { modo: 1 } });
+      if (config?.modo && !permissions.modes[config.modo]) {
+        await collections.configs.updateOne(
+          { accountId: account.accountId },
+          { $set: { modo: allowedModes(permissions)[0], updatedAt: new Date() } },
+        );
+        if (registry.runtimes.has(account.accountId)) await (await registry.get(account.accountId)).reloadConfig();
+      }
+    }
+    res.json({ ok: true, permissions });
+  }));
+
   // ─── Cuentas de WhatsApp ───────────────────────────────────────────────
   router.post('/api/admin/accounts/:accountId/assign', handle(async (req, res) => {
     const user = await findAccountUser(collections, req.body?.username);
@@ -138,6 +163,33 @@ export function createAdminRouter({ collections, registry, scheduler }) {
         ? await registry.stop(accountId, 'admin_stop')
         : await registry.logout(accountId);
     res.json({ ok: true, status });
+  }));
+
+  // ─── Consola de cada cuenta ────────────────────────────────────────────
+  router.get('/api/admin/accounts/:accountId/logs', handle(async (req, res) => {
+    const runtime = await registry.get(req.params.accountId);
+    res.json(await runtime.logger.read({ limit: req.query.limit, level: req.query.level, q: req.query.q }));
+  }));
+
+  router.delete('/api/admin/accounts/:accountId/logs', handle(async (req, res) => {
+    const runtime = await registry.get(req.params.accountId);
+    await runtime.logger.clear();
+    res.json({ ok: true });
+  }));
+
+  router.get('/api/admin/accounts/:accountId/logs/stream', handle(async (req, res) => {
+    const runtime = await registry.get(req.params.accountId);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    });
+    res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+    const off = registry.eventBus.on(`logs:${runtime.accountId}`, (entry) => {
+      res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
+    });
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
+    req.on('close', () => { off(); clearInterval(heartbeat); });
   }));
 
   // ─── Cuenta del administrador ──────────────────────────────────────────

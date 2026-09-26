@@ -5,6 +5,7 @@ import { APP_VERSION } from '../core/app-info.js';
 import { dayKey } from '../core/utils.js';
 import { getAccountSessionPath, getStorageRoot } from './account-service.js';
 import { getSystemSettings } from './settings-service.js';
+import { normalizePermissions } from './permissions.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STARTED_AT = new Date();
@@ -85,6 +86,7 @@ export async function buildOverview({ collections, registry }) {
     return {
       username: user.username,
       disabled: user.disabled === true,
+      permissions: normalizePermissions(user.permissions),
       createdAt: user.createdAt || null,
       lastLoginAt: user.lastLoginAt || null,
       account: account ? describeAccount(account) : null,

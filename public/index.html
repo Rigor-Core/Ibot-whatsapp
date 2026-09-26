@@ -1,471 +1,108 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ibot — Home</title>
-  <link rel="stylesheet" href="/css/styles.css" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#030406" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ibot — Inicio</title>
+  <meta name="theme-color" content="#f5f6f8">
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <style>
-    /* Estilos de layout del dashboard centrado */
-    .dashboard-layout {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: calc(100vh - 120px);
-    }
-    .home-main-card {
-      position: relative;
-      width: min(520px, 100%);
-      background: rgba(10, 11, 15, 0.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-radius: 24px;
-      padding: 2.25rem 2rem;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 229, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      transition: box-shadow 0.3s ease, border-color 0.3s ease;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    /* Estilo neon en la tarjeta cuando el bot está activo */
-    .home-main-card.bot-running {
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 35px rgba(57, 255, 20, 0.1);
-      border-color: rgba(57, 255, 20, 0.25);
-    }
-    /* Estilo neon en la tarjeta cuando el bot está apagado o vinculando */
-    .home-main-card.bot-stopped {
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 35px rgba(255, 23, 68, 0.08);
-      border-color: rgba(255, 23, 68, 0.2);
-    }
-
-    .user-header {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      padding-bottom: 1.25rem;
-      margin-bottom: 1.5rem;
-    }
-    .user-avatar {
-      font-size: 24px;
-      background: linear-gradient(135deg, var(--accent) 0%, #0088ff 100%);
-      width: 50px;
-      height: 50px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 16px;
-      box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
-    }
-    .user-info {
-      display: flex;
-      flex-direction: column;
-    }
-    .user-name {
-      font-weight: 800;
-      font-size: 18px;
-      color: #fff;
-    }
-    .user-tag {
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    /* Caja de Estado Neón */
-    .neon-state-box {
-      padding: 1.1rem 1.25rem;
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.25rem;
-      font-weight: 800;
-      font-size: 15px;
-      transition: all 0.3s ease;
-      background: rgba(255, 255, 255, 0.02);
-    }
-    .neon-state-box.on {
-      background: rgba(57, 255, 20, 0.04);
-      border-color: var(--success);
-      color: var(--success);
-      text-shadow: 0 0 8px rgba(57, 255, 20, 0.6);
-      box-shadow: 0 0 15px rgba(57, 255, 20, 0.15), inset 0 0 10px rgba(57, 255, 20, 0.05);
-    }
-    .neon-state-box.off {
-      background: rgba(255, 23, 68, 0.04);
-      border-color: var(--danger);
-      color: var(--danger);
-      text-shadow: 0 0 8px rgba(255, 23, 68, 0.6);
-      box-shadow: 0 0 15px rgba(255, 23, 68, 0.15), inset 0 0 10px rgba(255, 23, 68, 0.05);
-    }
-    .neon-state-box.reconnecting {
-      background: rgba(255, 152, 0, 0.04);
-      border-color: #ff9800;
-      color: #ff9800;
-      text-shadow: 0 0 8px rgba(255, 152, 0, 0.6);
-      box-shadow: 0 0 15px rgba(255, 152, 0, 0.15), inset 0 0 10px rgba(255, 152, 0, 0.05);
-    }
-    .state-label {
-      color: #9ca3af;
-      font-weight: 600;
-      font-size: 13px;
-    }
-
-    /* Runtime Status Box */
-    .runtime-status-box {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.8rem 1.25rem;
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      margin-bottom: 1.5rem;
-      font-size: 14px;
-    }
-    .runtime-label {
-      color: #9ca3af;
-      font-weight: 600;
-      font-size: 13px;
-    }
-    .runtime-value {
-      font-weight: 700;
-      color: #fff;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    /* Caja QR Discontinua */
-    .qr-dashed-wrapper {
-      border: 2px dashed rgba(189, 189, 189, 0.25);
-      border-radius: 18px;
-      padding: 1.75rem;
-      text-align: center;
-      margin-bottom: 1.5rem;
-      background: rgba(255, 255, 255, 0.01);
-      transition: all 0.3s ease;
-    }
-    .qr-dashed-wrapper:hover {
-      border-color: rgba(0, 229, 255, 0.35);
-      background: rgba(0, 229, 255, 0.01);
-    }
-    .qr-title {
-      font-weight: 800;
-      font-size: 16px;
-      color: #fff;
-      margin-bottom: 4px;
-    }
-    .qr-subtitle {
-      font-size: 12.5px;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-    .qr-status {
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.35);
-    }
-    .qr-box img {
-      max-width: 220px;
-      border-radius: 12px;
-      border: 4px solid #fff;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    }
-
-    /* Control Grid */
-    .control-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      margin-top: 1.5rem;
-    }
-
-    /* Botones Neón */
-    .neon-btn-power {
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .neon-btn-power.btn-off {
-      background: transparent;
-      border: 2px solid var(--success);
-      color: var(--success);
-      box-shadow: 0 0 10px rgba(57, 255, 20, 0.1);
-    }
-    .neon-btn-power.btn-off:hover {
-      background: var(--success);
-      color: #030406;
-      box-shadow: 0 0 20px rgba(57, 255, 20, 0.45);
-      transform: translateY(-2px);
-    }
-    .neon-btn-power.btn-on {
-      background: transparent;
-      border: 2px solid var(--danger);
-      color: var(--danger);
-      box-shadow: 0 0 10px rgba(255, 23, 68, 0.15);
-    }
-    .neon-btn-power.btn-on:hover {
-      background: var(--danger);
-      color: #fff;
-      box-shadow: 0 0 20px rgba(255, 23, 68, 0.45);
-      transform: translateY(-2px);
-    }
-    .neon-btn-power.btn-stopped {
-      background: #272c35;
-      border: 2px solid #555c68;
-      color: #b0b5c0;
-      box-shadow: none;
-    }
-    .neon-btn-power.btn-stopped:hover {
-      background: #3a414e;
-      border-color: #707988;
-      color: #fff;
-      transform: translateY(-2px);
-      box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
-    }
-
-    .neon-btn-answers {
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .neon-btn-answers.btn-off {
-      background: transparent;
-      border: 2px solid rgba(255, 255, 255, 0.2);
-      color: #d1d5db;
-    }
-    .neon-btn-answers.btn-off:hover {
-      border-color: #fff;
-      color: #fff;
-      box-shadow: 0 0 15px rgba(255, 255, 255, 0.25);
-      transform: translateY(-2px);
-    }
-    .neon-btn-answers.btn-on {
-      background: rgba(0, 229, 255, 0.12);
-      border: 2px solid var(--accent);
-      color: var(--accent);
-      box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
-    }
-    .neon-btn-answers.btn-on:hover {
-      background: var(--accent);
-      color: #030406;
-      box-shadow: 0 0 20px rgba(0, 229, 255, 0.45);
-      transform: translateY(-2px);
-    }
-
-    .neon-btn-login {
-      background: linear-gradient(135deg, var(--accent) 0%, #0088ff 100%);
-      color: #030406;
-      border: none;
-      box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .neon-btn-login:hover {
-      box-shadow: 0 0 25px rgba(0, 229, 255, 0.6);
-      transform: translateY(-2px);
-    }
-
-    /* Fila de Botones del Fondo */
-    .bottom-actions-row {
-      display: flex;
-      gap: 12px;
-      margin-top: 2rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      padding-top: 1.25rem;
-    }
-    .bottom-actions-row button {
-      flex: 1;
-    }
-
-    /* Panel de Estadísticas */
-    .stats-header {
-      margin-bottom: 1.25rem;
-    }
-    .stats-title {
-      font-weight: 800;
-      font-size: 16px;
-      color: #fff;
-      letter-spacing: -0.3px;
-    }
-    .stats-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .stats-card {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 1.1rem;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 16px;
-      transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    .stats-card:hover {
-      transform: translateX(4px);
-      border-color: rgba(255, 255, 255, 0.1);
-    }
-    .stats-icon {
-      font-size: 24px;
-      width: 44px;
-      height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(255, 255, 255, 0.04);
-      border-radius: 12px;
-    }
-    .stats-details {
-      display: flex;
-      flex-direction: column;
-    }
-    .stats-label {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 600;
-    }
-    .stats-value {
-      font-weight: 800;
-      font-size: 18px;
-      color: #fff;
-      margin-top: 2px;
-    }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; align-items: center; }
+    .status-line { display: flex; align-items: center; gap: 14px; }
+    .status-orb { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; flex: none; background: var(--surface-2); color: var(--muted); }
+    .status-orb svg { width: 26px; height: 26px; }
+    .status-orb.good { background: var(--good-soft); color: var(--good); }
+    .status-orb.warn { background: var(--warn-soft); color: var(--warn); }
+    .status-orb.danger { background: var(--danger-soft); color: var(--danger); }
+    .status-title { font-size: 20px; font-weight: 800; line-height: 1.2; }
+    .status-meta { color: var(--muted); font-size: 13px; }
+    .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+    .qr-panel { border-radius: var(--radius); background: var(--surface-2); border: 1px dashed var(--border-strong); padding: 18px; display: grid; place-items: center; text-align: center; gap: 10px; min-height: 220px; }
+    .qr-panel img { width: min(240px, 100%); height: auto; border-radius: 12px; background: #fff; padding: 8px; }
+    .steps { display: grid; gap: 8px; margin-top: 16px; counter-reset: step; }
+    .steps li { list-style: none; display: flex; gap: 10px; align-items: flex-start; color: var(--text-2); font-size: 13.5px; }
+    .steps li::before { counter-increment: step; content: counter(step); flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 800; }
+    .hero-side { display: grid; gap: 12px; }
+    .mini { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); }
+    .mini span { color: var(--muted); font-size: 13px; }
+    .mini strong { font-size: 14px; }
+    .shortcut { display: flex; align-items: center; gap: 14px; }
+    .shortcut .avatar { border-radius: 12px; }
+    .shortcut:hover .title { color: var(--accent); }
+    @media (max-width: 900px) { .hero { grid-template-columns: minmax(0, 1fr); } }
   </style>
 </head>
-<body>
-  <header class="topnav">
-    <div class="top-inner">
-      <div class="brand">
-        <div class="logo">IB</div>
-        <div>
-          <div style="font-weight: 800; font-size: 15px; line-height: 1.1;">Ibot</div>
-          <div style="font-size: 11px; color: var(--muted); line-height: 1.1;">Panel de Control</div>
-        </div>
+<body class="app" data-page="home">
+  <div class="app-shell">
+    <nav class="app-nav" id="appNav" aria-label="Navegación principal"></nav>
+    <main class="app-main">
+      <div class="app-content">
+        <header class="page-head">
+          <div>
+            <h1 class="page-title" id="greeting">Inicio</h1>
+            <div class="page-sub" id="modeLine">Tu WhatsApp y el estado del bot</div>
+          </div>
+        </header>
+
+        <section class="card">
+          <div class="hero">
+            <div>
+              <div class="status-line">
+                <div class="status-orb" id="statusOrb">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+                </div>
+                <div>
+                  <div class="status-title" id="statusTitle">Cargando…</div>
+                  <div class="status-meta" id="statusMeta">Comprobando tu WhatsApp</div>
+                </div>
+              </div>
+
+              <div class="hero-actions">
+                <button class="btn primary" type="button" id="linkBtn" hidden>Vincular WhatsApp</button>
+                <button class="btn primary" type="button" id="powerBtn" hidden>Encender</button>
+                <button class="btn" type="button" id="answersBtn" hidden>Activar respuestas</button>
+                <button class="btn danger" type="button" id="unlinkBtn" data-feature="unlinkWhatsapp" hidden>Desvincular</button>
+              </div>
+
+              <ol class="steps" id="linkSteps" hidden>
+                <li>Pulsa <strong>&nbsp;Vincular WhatsApp&nbsp;</strong> y espera el código QR.</li>
+                <li>En tu teléfono abre WhatsApp → Dispositivos vinculados → Vincular un dispositivo.</li>
+                <li>Escanea el código. Esta página se actualizará sola.</li>
+              </ol>
+            </div>
+
+            <div class="hero-side">
+              <div class="qr-panel" id="qrPanel" hidden>
+                <div id="qrBox"></div>
+                <div class="hint" id="qrHint">Esperando el código QR…</div>
+              </div>
+              <div class="mini"><span>Respuestas automáticas</span><strong id="answersState">—</strong></div>
+              <div class="mini"><span>Modo</span><strong id="modeState">—</strong></div>
+              <div class="mini"><span>Estado de la conexión</span><strong id="connState">—</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid grid-3" style="margin-top:16px">
+          <div class="stat"><div class="stat-label">Pedidos respondidos</div><div class="stat-value" id="ordersStat">0</div></div>
+          <div class="stat"><div class="stat-label">Grupos configurados</div><div class="stat-value" id="groupsStat">0</div></div>
+          <div class="stat"><div class="stat-label">Respuestas automáticas</div><div class="stat-value" id="answersStat">—</div></div>
+        </section>
+
+        <section class="grid grid-3" style="margin-top:16px">
+          <a class="card shortcut" href="/grupos.html" data-page="grupos"><div class="avatar">G</div><div><div class="title card-title">Grupos</div><div class="card-sub">Elige dónde responde el bot</div></div></a>
+          <a class="card shortcut" href="/chats.html" data-page="chats"><div class="avatar">C</div><div><div class="title card-title">Chats</div><div class="card-sub">Mensajes de grupos y contactos</div></div></a>
+          <a class="card shortcut" href="/configuracion.html" data-page="configuracion"><div class="avatar">A</div><div><div class="title card-title">Ajustes</div><div class="card-sub">Modo, IA y notificaciones</div></div></a>
+        </section>
       </div>
-      <nav class="top-links">
-        <a href="/" class="active" title="Inicio">🏠</a>
-        <a href="/grupos.html" title="Grupos">👥</a>
-        <a href="/contactos.html" title="Directorio / Contactos">📇</a>
-        <a href="/comandos.html" title="Comandos">⌘</a>
-        <a href="/configuracion.html" title="Configuración">⚙️</a>
-        <a href="/logs.html" title="Logs">📜</a>
-        <button id="panelLogoutBtn" class="linklike" type="button" title="Salir" style="filter: drop-shadow(0 0 2px rgba(255,23,68,0.85));">🚪</button>
-      </nav>
-    </div>
-  </header>
-
-  <main>
-    <div class="container" style="display: flex; justify-content: center; align-items: center; min-height: calc(100vh - 120px);">
-      
-      <!-- Tarjeta Central de Control -->
-      <div class="home-main-card" id="homeMainCard">
-
-        <!-- OVERLAY DE CARGA -->
-        <div id="loadingOverlay" style="display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 11, 15, 0.95); border-radius: 24px; z-index: 100; flex-direction: column; justify-content: center; align-items: center; gap: 16px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); text-align: center; padding: 2rem;">
-          <div style="width: 50px; height: 50px; border: 4px solid rgba(0, 229, 255, 0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);"></div>
-          <div style="font-weight: 800; font-size: 16px; color: #fff; text-shadow: 0 0 8px var(--accent-glow);">Conectando con WhatsApp...</div>
-          <div style="font-size: 12px; color: var(--muted);">Por favor espera a que se complete la conexión al 100%.</div>
-        </div>
-        
-        <!-- Encabezado de Usuario -->
-        <div class="user-header">
-          <div class="user-avatar">🤖</div>
-          <div class="user-info">
-            <div class="user-name" id="activeBotName">Cargando bot...</div>
-            <div class="user-tag">WhatsApp Bot</div>
-          </div>
-        </div>
-
-        <!-- Contenido Dinámico del Home -->
-        <div id="homeContent" style="display: none;">
-          
-          <!-- VISTA 1: Panel de Control Principal -->
-          <div id="mainPanelContent">
-            
-            <!-- Caja de Estado Neón -->
-            <div id="neonStateBox" class="neon-state-box off">
-              <span class="state-label">Estado del bot</span>
-              <span id="estadoText" class="state-value">APAGADO</span>
-            </div>
-
-            <!-- Runtime Status -->
-            <div class="runtime-status-box">
-              <span class="runtime-label">Estado Runtime</span>
-              <span id="runtimeText" class="runtime-value">Cargando...</span>
-            </div>
-
-            <!-- Caja QR Discontinua -->
-            <div id="qrWrapper" class="qr-dashed-wrapper" style="display: none;">
-              <div id="qrInstructions">
-                <div class="qr-title">Código QR</div>
-                <div class="qr-subtitle">Vincular dispositivo con WhatsApp.</div>
-                <div class="qr-status" id="qrPendingText">Sin QR pendiente.</div>
-              </div>
-              <div id="qrBox" class="qr-box"></div>
-            </div>
-
-            <!-- Controles del Bot (Sólo si está conectado) -->
-            <div id="controlGrid" class="control-grid" style="display: none;">
-              <button id="powerBtn" class="btn neon-btn-power btn-off">Encender bot</button>
-              <button id="answersBtn" class="btn neon-btn-answers btn-off">Activar respuestas</button>
-            </div>
-
-            <!-- Botón de Iniciar Sesión (Sólo si no está conectado) -->
-            <div id="loginBtnWrapper" style="display: none; margin-top: 1rem;">
-              <button id="startBtn" class="btn neon-btn-login full">Iniciar sesión</button>
-            </div>
-
-          </div>
-
-          <!-- VISTA 2: Panel de Estadísticas (Oculto por defecto) -->
-          <div id="statsPanelContent" style="display: none;">
-            <div class="stats-header">
-              <div class="stats-title">Estadísticas de Actividad</div>
-            </div>
-            <div class="stats-grid">
-              <div class="stats-card">
-                <div class="stats-icon">👥</div>
-                <div class="stats-details">
-                  <div class="stats-label">Grupos Configurados</div>
-                  <div class="stats-value" id="groupsText">0</div>
-                </div>
-              </div>
-              <div class="stats-card">
-                <div class="stats-icon">⚡</div>
-                <div class="stats-details">
-                  <div class="stats-label">Órdenes Recibidas</div>
-                  <div class="stats-value" id="ordersMetric">0</div>
-                </div>
-              </div>
-            </div>
-            <div style="margin-top: 20px; text-align: center;">
-              <button id="backBtn" class="btn util full">Regresar al Control</button>
-            </div>
-          </div>
-
-          <!-- Barra de Botones del Fondo -->
-          <div class="bottom-actions-row">
-            <button id="logoutBtn" class="btn danger" style="display: none;">Cerrar sesión</button>
-            <button id="statsBtn" class="btn util">Estadísticas</button>
-          </div>
-
-        </div> <!-- /homeContent -->
-        
-      </div> <!-- /homeMainCard -->
-      
-    </div>
-  </main>
-
-  <div id="toast" class="toast"></div>
-  <script src="/js/components.js"></script>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
   <script src="/js/home.js"></script>
 </body>
 </html>

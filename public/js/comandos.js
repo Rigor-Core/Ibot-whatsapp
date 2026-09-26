@@ -129,7 +129,6 @@ async function saveCommands() {
 }
 
 async function initCommands() {
-  bindPanelLogout();
   await loadUserBot();
   const config = await IbotApi.config();
   currentCommands = normalizedCommands(config.adminCommands);

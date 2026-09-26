@@ -44,3 +44,15 @@ test('crea un mensaje programado persistente con el destino validado', async () 
   assert.equal(inserted.status, 'pending');
   assert.equal(inserted.target.jid, '120363000@g.us');
 });
+
+test('calcula la siguiente fecha de un mensaje recurrente', async () => {
+  const { nextOccurrence } = await import('../src/services/message-scheduler.js');
+  const base = { localDate: '2026-09-25', localTime: '09:00', timeZone: 'America/Hermosillo' };
+  const friday = Date.UTC(2026, 8, 25, 17);
+  assert.equal(nextOccurrence({ ...base, repeat: 'none' }, friday), null);
+  assert.equal(nextOccurrence({ ...base, repeat: 'daily' }, friday).localDate, '2026-09-26');
+  assert.equal(nextOccurrence({ ...base, repeat: 'weekdays' }, friday).localDate, '2026-09-28');
+  assert.equal(nextOccurrence({ ...base, repeat: 'weekly' }, friday).localDate, '2026-10-02');
+  // Si el servidor estuvo apagado, salta hasta la siguiente fecha futura.
+  assert.equal(nextOccurrence({ ...base, repeat: 'daily' }, Date.UTC(2026, 9, 1, 12)).localDate, '2026-10-01');
+});

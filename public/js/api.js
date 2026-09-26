@@ -83,14 +83,13 @@ const IbotApi = (() => {
     resetGroup: (id) => request(api(`/grupos/${encodeURIComponent(id)}/reset-contador`), { method: 'POST' }),
     toggleGroupCommands: (id) => request(api(`/grupos/${encodeURIComponent(id)}/commands/toggle`), { method: 'PUT' }),
     toggleIndependent: () => request(api('/grupos/toggle_independent'), { method: 'POST' }),
-    logs: (params = '') => request(api(`/logs/console${params}`)),
-    clearLogs: () => request(api('/logs/console'), { method: 'DELETE' }),
-    chatGroups: (q = '') => request(api(`/chats/groups${q ? `?q=${encodeURIComponent(q)}` : ''}`)),
+    chatGroups: (q = '', type = '') => request(api(`/chats/groups${queryString({ q, type })}`)),
+    sendChatMessage: (chatId, text) => request(api(`/chats/${encodeURIComponent(chatId)}/send`), { method: 'POST', body: JSON.stringify({ text }) }),
     chatMessages: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/messages?limit=300`)),
     chatInfo: (groupId) => request(api(`/chats/groups/${encodeURIComponent(groupId)}/info`)),
     directory: (params = {}, opts = {}) => request(api(`/directory${queryString(params)}`), opts),
     directoryExport: (params = {}) => requestBlob(api(`/directory/export.csv${queryString(params)}`)),
-    scheduledMessages: (limit = 30) => request(api(`/scheduled-messages?limit=${encodeURIComponent(limit)}`)),
+    scheduledMessages: (status = '', limit = 100) => request(api(`/scheduled-messages${queryString({ status, limit })}`)),
     scheduleMessage: (body) => request(api('/scheduled-messages'), { method: 'POST', body: JSON.stringify(body) }),
     cancelScheduledMessage: (id) => request(api(`/scheduled-messages/${encodeURIComponent(id)}`), { method: 'DELETE' }),
   };
@@ -118,9 +117,40 @@ function toast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2800);
 }
+const PAGE_LINKS = { grupos: '/grupos.html', chats: '/chats.html', contactos: '/contactos.html', comandos: '/comandos.html', configuracion: '/configuracion.html' };
+
+// Oculta lo que el administrador no permite: páginas del menú, funciones marcadas
+// con data-page/data-feature y modos no permitidos.
+function applyPermissions(permissions) {
+  if (!permissions) return;
+  document.documentElement.dataset.permissionsReady = 'true';
+  for (const [page, href] of Object.entries(PAGE_LINKS)) {
+    if (permissions.pages[page]) continue;
+    document.querySelectorAll(`a[href="${href}"]`).forEach((link) => link.remove());
+  }
+  document.querySelectorAll('[data-page]').forEach((el) => {
+    if (permissions.pages[el.dataset.page] === false) el.remove();
+  });
+  document.querySelectorAll('[data-feature]').forEach((el) => {
+    if (permissions.features[el.dataset.feature] === false) el.remove();
+  });
+  document.querySelectorAll('select[data-modes] option').forEach((option) => {
+    if (permissions.modes[option.value] === false) option.remove();
+  });
+}
+
+let userBotCache = null;
 // eslint-disable-next-line no-unused-vars
 async function loadUserBot() {
-  return IbotApi.bot();
+  userBotCache = await IbotApi.bot();
+  applyPermissions(userBotCache.permissions);
+  return userBotCache;
+}
+
+// Permisos del usuario actual (después de loadUserBot).
+// eslint-disable-next-line no-unused-vars
+function userPermissions() {
+  return userBotCache?.permissions || null;
 }
 // Cambios en tiempo real (estado del WhatsApp y grupos). EventSource se
 // reconecta solo si se corta la conexión.

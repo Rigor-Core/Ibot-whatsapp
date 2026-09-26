@@ -20,6 +20,7 @@ import {
 } from '../services/ai-providers.js';
 import { getSystemSettingsCached } from '../services/settings-service.js';
 import { NOTIFICATION_TYPES, normalizeNotificationPrefs } from '../services/push-service.js';
+import { allowedModes, deniedApiPermission, deniedConfigChange } from '../services/permissions.js';
 
 function publicConfig(config) {
   return {
@@ -44,6 +45,8 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
 
   // Solo los usuarios normales tienen cuenta de WhatsApp; el administrador no.
   router.use('/api/bot', requireAccountUser, async (req, res, next) => {
+    const denied = deniedApiPermission(req.panelUser.permissions, req.method, req.originalUrl.split('?')[0]);
+    if (denied) return res.status(403).json({ error: `El administrador no te permite: ${denied}` });
     try {
       const account = await getUserAccount(collections, req.panelUser);
       req.botAccount = account;
@@ -59,7 +62,11 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     return req.resolvedAccountId;
   }
 
-  router.get('/api/bot', (req, res) => res.json(publicSafeAccount(req.botAccount)));
+  router.get('/api/bot', (req, res) => res.json({
+    ...publicSafeAccount(req.botAccount),
+    permissions: req.panelUser.permissions,
+    allowedModes: allowedModes(req.panelUser.permissions),
+  }));
 
   router.get('/api/bot/status', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
@@ -96,6 +103,8 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
       const accountId = resolveAccountId(req);
       const current = await getConfig(collections, accountId) || defaultBotConfig(accountId);
       const body = req.body || {};
+      const deniedChange = deniedConfigChange(req.panelUser.permissions, body);
+      if (deniedChange) return res.status(403).json({ error: `El administrador no te permite: ${deniedChange}` });
       const set = { updatedAt: now() };
       if (body.modo !== undefined) {
         if (!BOT_MODES.includes(body.modo)) return res.status(400).json({ error: 'Modo inválido' });
@@ -293,6 +302,10 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     try {
       const accountId = resolveAccountId(req);
       const doc = cleanGroupPayload(req.body, accountId);
+      const { maxGroups } = req.panelUser.permissions.limits;
+      if (maxGroups && await collections.groups.countDocuments({ accountId }) >= maxGroups) {
+        return res.status(403).json({ error: `Alcanzaste el límite de ${maxGroups} grupo(s) que te asignó el administrador.` });
+      }
       await collections.groups.insertOne({ ...doc, createdAt: now(), updatedAt: now() });
       const runtime = await registry.get(accountId);
       await runtime.reloadGroups();
@@ -369,52 +382,41 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
     res.json({ ok: true });
   });
 
-  router.get('/api/bot/logs/console', async (req, res) => {
-    const runtime = await registry.get(resolveAccountId(req));
-    const rows = await runtime.logger.read({ limit: req.query.limit, level: req.query.level, q: req.query.q });
-    res.json(rows);
-  });
-
-  router.delete('/api/bot/logs/console', async (req, res) => {
-    const runtime = await registry.get(resolveAccountId(req));
-    await runtime.logger.clear();
-    res.json({ ok: true });
-  });
-
-  router.get('/api/bot/logs/stream', async (req, res) => {
-    const accountId = resolveAccountId(req);
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    });
-    res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
-    const off = registry.eventBus.on(`logs:${accountId}`, (entry) => {
-      res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
-    });
-    req.on('close', off);
-  });
-
+  // Chats registrados (grupos y contactos). ?type=group|contact filtra.
   router.get('/api/bot/chats/groups', async (req, res) => {
     const runtime = await registry.get(resolveAccountId(req));
-    const configured = await collections.groups.find({ accountId: runtime.accountId }).toArray();
+    const [configured, rows] = await Promise.all([
+      collections.groups.find({ accountId: runtime.accountId }, { projection: { groupId: 1, nombre: 1 } }).toArray(),
+      runtime.chatStore.listGroups({ q: req.query.q, type: req.query.type }),
+    ]);
     const configuredMap = new Map(configured.map((g) => [g.groupId, g]));
-    
-    const chatGroups = await collections.chatGroups.find({ accountId: runtime.accountId }).toArray();
-    const chatGroupsMap = new Map(chatGroups.map((g) => [g.groupId, g]));
-
-    const rows = await runtime.chatStore.listGroups({ q: req.query.q });
-    const enriched = rows.map((g) => {
-      const conf = configuredMap.get(g.groupId);
-      const cached = chatGroupsMap.get(g.groupId);
+    res.json(rows.map((g) => {
+      const isGroup = String(g.groupId).endsWith('@g.us');
       return {
         ...g,
-        subject: conf?.nombre || g.subject || cached?.subject || g.groupId,
-        pictureUrl: cached?.pictureUrl || conf?.pictureUrl || g.pictureUrl || null,
-        configured: !!conf
+        type: isGroup ? 'group' : 'contact',
+        subject: configuredMap.get(g.groupId)?.nombre || (isGroup ? g.subject : runtime.chatName(g.groupId)) || g.groupId,
+        configured: configuredMap.has(g.groupId),
       };
-    });
-    res.json(enriched);
+    }));
+  });
+
+  // Envía un mensaje de texto a un grupo o contacto desde el panel.
+  router.post('/api/bot/chats/:chatId/send', async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      const text = String(req.body?.text || '').trim().slice(0, 4000);
+      if (!text) return res.status(400).json({ error: 'Escribe un mensaje' });
+      if (!/@(g\.us|s\.whatsapp\.net|lid)$/.test(chatId)) return res.status(400).json({ error: 'Chat inválido' });
+      const runtime = await registry.get(resolveAccountId(req));
+      if (!runtime.socket || runtime.status !== 'connected') {
+        return res.status(400).json({ error: 'Tu WhatsApp no está conectado' });
+      }
+      await runtime.socket.sendMessage(chatId, { text });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   router.get('/api/bot/chats/groups/:groupId/messages', async (req, res) => {
@@ -477,7 +479,7 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
   router.get('/api/bot/scheduled-messages', async (req, res) => {
     try {
       const accountId = resolveAccountId(req);
-      res.json(await scheduler.list(accountId, { limit: req.query.limit }));
+      res.json(await scheduler.list(accountId, { limit: req.query.limit, status: req.query.status }));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -493,6 +495,7 @@ export function createMainRouter({ collections, registry, scheduler, push }) {
         target: req.body?.target,
         localDate: req.body?.localDate,
         localTime: req.body?.localTime,
+        repeat: req.body?.repeat || 'none',
         timeZone: config.timezone || 'America/Hermosillo',
       });
       res.status(201).json(scheduled);
