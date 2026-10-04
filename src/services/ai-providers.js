@@ -19,6 +19,8 @@ export const AI_PROVIDERS = Object.freeze({
     baseUrl: dipisikBaseUrl,
     models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-search'],
     supportsProfile: true,
+    // Con `tools` Dipisik cambia a su modo de agente de código (OpenCode) y deja de contestar como chat.
+    nativeTools: false,
   },
   deepseek: {
     name: 'DeepSeek (API oficial)',
@@ -144,6 +146,11 @@ function inferProvider(baseUrl) {
   if (url.includes('api.groq.com')) return 'groq';
   if (url.includes('openrouter.ai')) return 'openrouter';
   return 'custom';
+}
+
+// ¿El proveedor admite herramientas (function calling) sin cambiar de modo?
+export function providerSupportsTools(provider) {
+  return AI_PROVIDERS[provider]?.nativeTools !== false;
 }
 
 export function validateCustomBaseUrl(value) {

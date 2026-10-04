@@ -151,7 +151,7 @@ test('usa la plantilla del chat y el historial como contexto', async () => {
 
 test('la IA busca en el historial con herramientas antes de responder', async () => {
   const t = context({
-    ia: { triggerMode: 'all' },
+    ia: { triggerMode: 'all', provider: 'openai', apiKey: 'k' },
     replies: [{ tool: 'search_messages', args: { query: 'entrega', chat: 'Ventas' } }, 'La entrega es el viernes'],
     searchResults: [{ ts: Date.now(), fromMe: false, senderName: 'Ana', groupName: 'Ventas', text: 'la entrega es el viernes' }],
   });
@@ -165,7 +165,7 @@ test('la IA busca en el historial con herramientas antes de responder', async ()
 
 test('en chats de otras personas las herramientas solo ven esa conversación', async () => {
   const t = context({
-    ia: { triggerMode: 'all' },
+    ia: { triggerMode: 'all', provider: 'openai', apiKey: 'k' },
     replies: [{ tool: 'search_messages', args: { query: 'x', chat: 'Otro' } }, 'ok'],
   });
   assert.equal(await handleIa(message('busca x'), t.ctx), true);
@@ -186,4 +186,12 @@ test('si el proveedor no admite herramientas responde sin ellas', async () => {
   assert.equal(await handleIa(message('hola'), t.ctx), true);
   assert.equal(call, 2);
   assert.deepEqual(t.sent.map((item) => item.text), ['sin herramientas']);
+});
+
+test('Dipisik nunca recibe herramientas (las trataría como agente de código)', async () => {
+  const t = context({ ia: { triggerMode: 'all' } });
+  assert.equal(await handleIa(message('hola'), t.ctx), true);
+  assert.equal(t.requests[0].tools, undefined);
+  assert.equal(t.requests[0].tool_choice, undefined);
+  assert.doesNotMatch(t.requests[0].messages[0].content, /list_chats|read_chat|search_messages|send_sticker/);
 });

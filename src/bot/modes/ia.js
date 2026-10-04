@@ -1,3 +1,4 @@
+import { providerSupportsTools } from '../../services/ai-providers.js';
 import { getSystemSettingsCached } from '../../services/settings-service.js';
 import { runAgent } from '../ai/agent.js';
 import { buildHistory, buildSystemPrompt, describeMessage, remember } from '../ai/context.js';
@@ -76,10 +77,14 @@ export async function handleIa(extracted, ctx) {
   }
 
   const template = runtime.aiTemplates.get(rule?.templateId || ia.defaultTemplateId) || null;
-  const stickers = template && template.stickerMode !== 'never'
+  // Sin herramientas nativas (Dipisik) la IA responde solo con texto y, en tu chat, con un resumen de tus chats recientes.
+  const toolsOn = providerSupportsTools(ia.provider);
+  const stickers = toolsOn && template && template.stickerMode !== 'never'
     ? (await runtime.stickers.list(runtime.accountId)).slice(0, MAX_STICKERS_IN_PROMPT)
     : [];
-  const tools = buildTools({ runtime, extracted, isOwnerChat, template, stickers });
+  const tools = toolsOn
+    ? buildTools({ runtime, extracted, isOwnerChat, template, stickers })
+    : { definitions: [], extensionNames: [], execute: async () => null, stickerSent: () => false };
   const chat = { isGroup: extracted.isGroup, name: runtime.chatName(chatId, extracted) };
   const userContent = extracted.isGroup && ia.includeSenderName && extracted.senderName
     ? `${extracted.senderName}: ${prompt}`
@@ -89,7 +94,7 @@ export async function handleIa(extracted, ctx) {
   if (ia.showTyping) ctx.socket.sendPresenceUpdate('composing', chatId).catch(() => null);
   try {
     const [system, history, settings] = await Promise.all([
-      buildSystemPrompt({ runtime, chat, template, isOwnerChat, stickers, hasTools: ia.historyTools, extensionNames: tools.extensionNames }),
+      buildSystemPrompt({ runtime, chat, template, isOwnerChat, stickers, hasTools: toolsOn && ia.historyTools, extensionNames: tools.extensionNames }),
       buildHistory({ runtime, extracted, isOwnerChat }),
       getSystemSettingsCached(ctx.collections),
     ]);

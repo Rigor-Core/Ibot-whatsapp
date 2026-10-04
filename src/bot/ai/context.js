@@ -75,6 +75,11 @@ export async function buildSystemPrompt({ runtime, chat, template, isOwnerChat, 
     if (hasTools) {
       parts.push('Puedes consultar todos sus chats y grupos con las herramientas: para resúmenes o preguntas sobre lo que dijo alguien, primero busca con list_chats/read_chat/search_messages y luego responde con datos reales. Solo envía mensajes a otros chats (send_message) cuando te lo pida de forma explícita.');
     }
+    if (!hasTools) {
+      const recent = await runtime.chatStore.listGroups({ limit: 8 }).catch(() => []);
+      const lines = recent.filter((row) => row.lastMessagePreview).map((row) => `- ${runtime.chatName(row.groupId) || row.subject || row.groupId}: ${String(row.lastMessagePreview).slice(0, 120)}`);
+      if (lines.length) parts.push(`Chats recientes (último mensaje de cada uno; no puedes abrir otros chats, si piden más detalle dilo):\n${lines.join('\n')}`);
+    }
     if (extensionNames.length) {
       parts.push(`Tienes acceso a: ${extensionNames.join(', ')}. Úsalos cuando te lo pida; confirma brevemente lo que hiciste y nunca digas que hiciste algo si la herramienta dio error.`);
     }
